@@ -65,6 +65,32 @@ describe('GET /api/v1/members (public)', () => {
   });
 });
 
+describe('Rep holders without a member record', () => {
+  const GRANTEE = '0x9999999999999999999999999999999999999999';
+
+  it('are listed, with no attendance', async () => {
+    const { default: prisma } = await import('../src/lib/prisma');
+    await prisma.repEvent.create({
+      data: {
+        type: 'GRANT',
+        account: GRANTEE,
+        amount: '1',
+        blockNumber: 1n,
+        logIndex: 0,
+        txHash: '0xgrant',
+        occurredAt: new Date(),
+      },
+    });
+    try {
+      const members = (await request(app).get('/api/v1/members')).body.data.members as Member[];
+      expect(members).toHaveLength(7);
+      expect(members.find((m) => m.walletAddress === GRANTEE)).toMatchObject({ tokensEarned: 0 });
+    } finally {
+      await prisma.repEvent.deleteMany({ where: { account: GRANTEE } });
+    }
+  });
+});
+
 describe('GET /api/v1/members/:address/{tokens,stats} (public)', () => {
   it('returns the vault for a known member', async () => {
     const res = await request(app).get(`/api/v1/members/${ALICE}/tokens`);

@@ -7,6 +7,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AdminPageHeader from '@/components/features/admin/AdminPageHeader';
 import { listAdminMembers, toggleFoundingMember, downloadMembersCSV } from '@/lib/api/admin';
 import { queryKeys } from '@/lib/api/queryKeys';
+import { getLeaderboard } from '@/lib/api/members';
+import { formatRep } from '@/lib/rep';
 import { requireIdentityToken, retryUnlessForbidden } from '@/lib/api/client';
 import { ATTENDANCE_GOOD_PCT, ATTENDANCE_OK_PCT } from '@/lib/constants';
 import { MemberStats } from '@/types';
@@ -24,6 +26,13 @@ export default function AdminMembersPage() {
     enabled: authenticated,
     retry: retryUnlessForbidden,
   });
+
+  // Current Rep comes from the public leaderboard, read for everyone at one block.
+  const { data: board } = useQuery({
+    queryKey: queryKeys.leaderboard(),
+    queryFn: () => getLeaderboard(),
+  });
+  const repByWallet = new Map(board?.entries.map((entry) => [entry.avatarSeed, entry.rep]));
 
   const { mutate: exportCSV, isPending: exporting } = useMutation({
     mutationFn: async () => {
@@ -83,7 +92,7 @@ export default function AdminMembersPage() {
                   <th className="px-4 py-3 font-medium text-right">Tokens</th>
                   <th className="px-4 py-3 font-medium text-right">All&#8209;time</th>
                   <th className="px-4 py-3 font-medium text-right">Semester</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium text-right">Rep</th>
                   <th className="px-4 py-3 font-medium">Last Seen</th>
                   <th className="px-4 py-3 font-medium">Founding</th>
                 </tr>
@@ -94,6 +103,7 @@ export default function AdminMembersPage() {
                     key={member.id}
                     member={member}
                     rank={i + 1}
+                    rep={repByWallet.get(member.walletAddress)}
                     toggling={togglingId}
                     onToggleFounding={(founding) =>
                       setFounding({ memberId: member.id, founding })
@@ -114,11 +124,12 @@ export default function AdminMembersPage() {
 interface MemberRowProps {
   member: MemberStats;
   rank: number;
+  rep: string | null | undefined;
   toggling: boolean;
   onToggleFounding: (founding: boolean) => void;
 }
 
-function MemberRow({ member, rank, toggling, onToggleFounding }: MemberRowProps) {
+function MemberRow({ member, rank, rep, toggling, onToggleFounding }: MemberRowProps) {
   return (
     <tr className="hover:bg-raised">
       <td className="px-4 py-3 text-content-muted tabular-nums">{rank}</td>
@@ -137,9 +148,7 @@ function MemberRow({ member, rank, toggling, onToggleFounding }: MemberRowProps)
       <td className="px-4 py-3 text-right">
         <AttendancePct pct={member.currentSemesterAttendancePct} />
       </td>
-      <td className="px-4 py-3">
-        <TierBadge tier={member.statusTier} foundingMember={member.foundingMember} />
-      </td>
+      <td className="px-4 py-3 text-right font-mono tabular-nums text-content">{formatRep(rep)}</td>
       <td className="px-4 py-3 text-content-secondary whitespace-nowrap text-xs">
         {member.lastSeen ? (
           formatRelativeDate(member.lastSeen)
@@ -177,33 +186,6 @@ function AttendancePct({ pct }: { pct: number }) {
         ? 'text-status-warn'
         : 'text-content-secondary';
   return <span className={`tabular-nums font-medium ${color}`}>{pct}%</span>;
-}
-
-interface TierBadgeProps {
-  tier: MemberStats['statusTier'];
-  foundingMember: boolean;
-}
-
-function TierBadge({ tier, foundingMember }: TierBadgeProps) {
-  if (foundingMember) {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-status-warn-bg text-status-warn">
-        Founding
-      </span>
-    );
-  }
-  if (tier === 'Official Member') {
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-status-info-bg text-cyan">
-        Official
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-raised text-content-secondary">
-      General
-    </span>
-  );
 }
 
 function formatRelativeDate(iso: string): string {

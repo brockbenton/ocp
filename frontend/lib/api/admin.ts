@@ -3,9 +3,11 @@ import {
   Attendee,
   Session,
   MembersListResponse,
-  AdminRole,
   AdminOverview,
   AdminMe,
+  CloseList,
+  MetadataPreview,
+  ReviewItem,
 } from '@/types';
 import { apiRequest, API_BASE, ApiRequestError } from './client';
 
@@ -40,9 +42,13 @@ async function downloadCSV(path: string, fallbackFilename: string, token: string
   URL.revokeObjectURL(url);
 }
 
-export async function downloadSessionCSV(sessionId: string, token: string): Promise<void> {
+export async function downloadSessionCSV(
+  sessionId: string,
+  registry: string,
+  token: string,
+): Promise<void> {
   await downloadCSV(
-    `/admin/export/sessions/${encodeURIComponent(sessionId)}`,
+    `/admin/export/sessions/${encodeURIComponent(sessionId)}?registry=${registry}`,
     `session-${sessionId}-attendees.csv`,
     token,
   );
@@ -56,33 +62,61 @@ export async function listAdminSessions(token: string): Promise<SessionWithCount
   return apiRequest<SessionWithCount[]>('/admin/sessions', { token });
 }
 
-export async function getSessionAttendees(sessionId: string, token: string): Promise<Attendee[]> {
-  return apiRequest<Attendee[]>(`/admin/sessions/${encodeURIComponent(sessionId)}/attendees`, { token });
+export async function getSessionAttendees(
+  sessionId: string,
+  registry: string,
+  token: string,
+): Promise<Attendee[]> {
+  return apiRequest<Attendee[]>(
+    `/admin/sessions/${encodeURIComponent(sessionId)}/attendees?registry=${registry}`,
+    { token },
+  );
 }
 
-export interface CreateSessionParams {
-  sessionId: string;
-  date: string;
-  name: string;
-}
-
-export async function createSession(params: CreateSessionParams, token: string): Promise<Session> {
-  return apiRequest<Session>('/sessions', {
-    method: 'POST',
-    body: JSON.stringify(params),
-    token,
-  });
-}
-
-export async function closeSession(sessionId: string, token: string): Promise<Session> {
-  return apiRequest<Session>(`/sessions/${encodeURIComponent(sessionId)}/close`, {
-    method: 'POST',
-    token,
-  });
+/**
+ * Mirrors an officer's own transaction without waiting for the indexer. The transaction
+ * has already succeeded, so a failure here is not an error: resolves false, and the
+ * indexer catches up shortly.
+ */
+export async function syncSession(sessionId: string, token: string): Promise<boolean> {
+  try {
+    await apiRequest<Session>(`/sessions/${encodeURIComponent(sessionId)}/sync`, {
+      method: 'POST',
+      token,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function getSession(sessionId: string, token: string): Promise<Session> {
   return apiRequest<Session>(`/sessions/${encodeURIComponent(sessionId)}`, { token });
+}
+
+export async function getSessionDefaults(token: string): Promise<{ suggestedMaxAttendees: number }> {
+  return apiRequest<{ suggestedMaxAttendees: number }>('/admin/session-defaults', { token });
+}
+
+export async function previewMetadata(
+  input: { sessionId: string; name: string; date: string },
+  token: string,
+): Promise<MetadataPreview> {
+  return apiRequest<MetadataPreview>('/admin/metadata/preview', {
+    method: 'POST',
+    body: JSON.stringify(input),
+    token,
+  });
+}
+
+export async function getCloseList(sessionId: string, token: string): Promise<CloseList> {
+  return apiRequest<CloseList>(`/admin/sessions/${encodeURIComponent(sessionId)}/close-list`, {
+    token,
+  });
+}
+
+export async function getReviewQueue(token: string): Promise<ReviewItem[]> {
+  return apiRequest<ReviewItem[]>('/admin/review', { token });
 }
 
 export async function listAdminMembers(token: string): Promise<MembersListResponse> {
@@ -98,10 +132,6 @@ export async function toggleFoundingMember(
     `/admin/members/${encodeURIComponent(memberId)}/founding-member`,
     { method: 'PATCH', body: JSON.stringify({ founding }), token },
   );
-}
-
-export async function listAdminRoles(token: string): Promise<AdminRole[]> {
-  return apiRequest<AdminRole[]>('/admin/roles', { token });
 }
 
 // A request that never settles would stall the projector's refresh, so it is abandoned.

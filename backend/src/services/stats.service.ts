@@ -38,6 +38,19 @@ export interface MemberStat {
   recentAttendance: boolean[];
 }
 
+/**
+ * Wallets that have held Rep but have no member record (for example a governance grant),
+ * as directory rows with no attendance, so the leaderboard leaves no holder out.
+ */
+export async function repOnlyWallets(known: Iterable<string>): Promise<string[]> {
+  const accounts = await prisma.repEvent.findMany({
+    where: { account: { notIn: [...known] } },
+    distinct: ['account'],
+    select: { account: true },
+  });
+  return accounts.map((a) => a.account);
+}
+
 /** The trailing window of meetings the admin members table renders as a matrix. */
 export const RECENT_SESSION_WINDOW = 6;
 

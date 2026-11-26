@@ -4,7 +4,7 @@ export const dynamic = 'force-dynamic';
 
 import { Fragment, useState } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import AdminPageHeader from '@/components/features/admin/AdminPageHeader';
 import Link from 'next/link';
 import { listAdminSessions, getSessionAttendees, downloadSessionCSV } from '@/lib/api/admin';
@@ -12,22 +12,24 @@ import { listAdminSessions, getSessionAttendees, downloadSessionCSV } from '@/li
 import { queryKeys } from '@/lib/api/queryKeys';
 import { requireIdentityToken, retryUnlessForbidden } from '@/lib/api/client';
 import { SessionWithCount, Attendee } from '@/types';
-import CreateSessionForm from '@/components/features/admin/CreateSessionForm';
-import CloseSessionButton from '@/components/features/admin/CloseSessionButton';
+import StartMeetingForm from '@/components/features/admin/StartMeetingForm';
+import OpenSessions from '@/components/features/admin/OpenSessions';
+import PausePanel from '@/components/features/admin/PausePanel';
+import RepStatusBadge from '@/components/features/admin/RepStatusBadge';
 
 export default function AdminSessionsPage() {
   const { authenticated } = usePrivy();
-  const queryClient = useQueryClient();
-  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
-  const [downloadingSessionId, setDownloadingSessionId] = useState<string | null>(null);
+  // Keyed by row id: the same on-chain id can exist on an earlier registry.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const { mutate: exportSessionCSV } = useMutation({
-    mutationFn: async (sessionId: string) => {
-      setDownloadingSessionId(sessionId);
+    mutationFn: async (session: SessionWithCount) => {
+      setDownloadingId(session.id);
       const token = await requireIdentityToken();
-      await downloadSessionCSV(sessionId, token);
+      await downloadSessionCSV(session.sessionId, session.registryAddress, token);
     },
-    onSettled: () => setDownloadingSessionId(null),
+    onSettled: () => setDownloadingId(null),
   });
 
   const {
@@ -44,22 +46,25 @@ export default function AdminSessionsPage() {
     retry: retryUnlessForbidden,
   });
 
+  const expanded = sessions?.find((s) => s.id === expandedId);
   const { data: attendees, isLoading: loadingAttendees } = useQuery({
-    queryKey: queryKeys.sessionAttendees(expandedSessionId ?? ''),
+    queryKey: queryKeys.sessionAttendees(expandedId ?? ''),
     queryFn: async () => {
       const token = await requireIdentityToken();
-      return getSessionAttendees(expandedSessionId!, token);
+      return getSessionAttendees(expanded!.sessionId, expanded!.registryAddress, token);
     },
-    enabled: !!expandedSessionId,
+    enabled: !!expanded,
   });
 
   return (
     <div className="space-y-10">
-      <AdminPageHeader title="Sessions" caption="Create meetings and see who checked in" />
+      <AdminPageHeader title="Sessions" caption="Run meetings and see who checked in" />
 
-      <CreateSessionForm
-        onSuccess={() => queryClient.invalidateQueries({ queryKey: queryKeys.adminSessions() })}
-      />
+      <StartMeetingForm />
+
+      <OpenSessions sessions={sessions ?? []} />
+
+      <PausePanel />
 
         <section>
           <h2 className="text-base font-medium text-content mb-4">All Sessions</h2>
@@ -102,45 +107,41 @@ export default function AdminSessionsPage() {
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-3">
-                            {session.onchainStatus === 'CONFIRMED' && !session.closedAt && (
-                              <Link
-                                href={`/admin/sessions/${encodeURIComponent(session.sessionId)}/qr`}
-                                className="text-cyan hover:text-content text-xs font-medium"
-                              >
-                                QR
-                              </Link>
+                            {isOpen(session) && (
+                              <>
+                                <Link
+                                  href={`/admin/sessions/${encodeURIComponent(session.sessionId)}/qr`}
+                                  className="text-cyan hover:text-content text-xs font-medium"
+                                >
+                                  QR
+                                </Link>
+                                <Link
+                                  href={`/admin/sessions/${encodeURIComponent(session.sessionId)}/close`}
+                                  className="text-status-neg text-xs font-medium"
+                                >
+                                  End meeting
+                                </Link>
+                              </>
                             )}
                             {session.onchainStatus === 'CONFIRMED' && (
                               <button
-                                onClick={() => exportSessionCSV(session.sessionId)}
-                                disabled={downloadingSessionId === session.sessionId}
+                                onClick={() => exportSessionCSV(session)}
+                                disabled={downloadingId === session.id}
                                 className="text-cyan hover:text-content text-xs font-medium disabled:opacity-50"
                               >
-                                {downloadingSessionId === session.sessionId ? '…' : 'CSV'}
+                                {downloadingId === session.id ? '…' : 'CSV'}
                               </button>
                             )}
-                            {session.onchainStatus === 'CONFIRMED' && !session.closedAt && (
-                              <CloseSessionButton
-                                sessionId={session.sessionId}
-                                sessionName={session.name}
-                              />
-                            )}
                             <button
-                              onClick={() =>
-                                setExpandedSessionId(
-                                  expandedSessionId === session.sessionId
-                                    ? null
-                                    : session.sessionId,
-                                )
-                              }
+                              onClick={() => setExpandedId(expandedId === session.id ? null : session.id)}
                               className="text-cyan hover:text-content text-xs font-medium"
                             >
-                              {expandedSessionId === session.sessionId ? 'Hide' : 'Attendees'}
+                              {expandedId === session.id ? 'Hide' : 'Attendees'}
                             </button>
                           </div>
                         </td>
                       </tr>
-                      {expandedSessionId === session.sessionId && (
+                      {expandedId === session.id && (
                         <tr>
                           <td colSpan={6} className="px-4 py-3 bg-status-info-bg">
                             <AttendeeList attendees={attendees ?? []} loading={loadingAttendees} />
@@ -168,6 +169,11 @@ function formatDate(iso: string): string {
   });
 }
 
+/** Only sessions on the current registry can still take check-ins or be closed. */
+function isOpen(session: SessionWithCount): boolean {
+  return session.isCurrentRegistry && session.onchainStatus === 'CONFIRMED' && !session.closedAt;
+}
+
 function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 }
@@ -177,7 +183,10 @@ interface SessionStatusBadgeProps {
 }
 
 function SessionStatusBadge({ session }: SessionStatusBadgeProps) {
-  if (session.closedAt) {
+  if (session.closedAt && session.isCurrentRegistry) {
+    return <RepStatusBadge session={session} />;
+  }
+  if (session.closedAt || (!session.isCurrentRegistry && session.onchainStatus === 'CONFIRMED')) {
     return (
       <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-raised text-content-secondary">
         Closed
@@ -228,6 +237,7 @@ function AttendeeList({ attendees, loading }: AttendeeListProps) {
           <span className="font-mono text-content truncate">{a.walletAddress}</span>
           <div className="flex items-center gap-3 shrink-0 ml-4">
             <span className="text-content-secondary">{formatTime(a.checkedInAt)}</span>
+            {a.failureReason && <span className="text-status-neg">{a.failureReason}</span>}
             <MintStatusBadge status={a.mintStatus} />
           </div>
         </div>
@@ -253,7 +263,7 @@ function MintStatusBadge({ status }: { status: Attendee['mintStatus'] }) {
   }
   return (
     <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-status-warn-bg text-status-warn">
-      Minting
+      {status === 'SUBMITTED' ? 'Minting' : 'Queued'}
     </span>
   );
 }

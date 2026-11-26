@@ -87,8 +87,8 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 | Requests without a wallet rejected | ✅ | `403 NO_WALLET` when the account has no embedded wallet |
 | Wedged-session self-heal | ✅ | `SessionRecoveryGate` recovers a stuck Privy session once per tab |
 | Identity pinned to the embedded wallet | ✅ | Identity is the Privy embedded wallet stored on the member record (or the primary embedded wallet before one exists). Linked external wallets are never identities; an account with none gets `403 NO_WALLET` (#74) |
-| Never enable Privy delegated actions / session signers | 🟡 | Hard rule — otherwise the backend *could* sign votes for members (#70) |
-| Readable signing prompts | 🟡 | Typed EIP-712 structs per action with human-readable fields; Privy confirmation UI kept on (#70) |
+| Never enable Privy delegated actions / session signers | ✅ rule | Hard rule — otherwise the backend *could* sign votes for members. A frontend test fails on delegated-action or session-signer APIs and on hidden confirmations (#70) |
+| Readable signing prompts | 🔧 | The app shows the proposal title and For/Against/Abstain before the prompt, and the prompt repeats them; confirmations are forced on. V1 uses stock `castVoteBySig`, so the signed fields themselves are an id and a number. Needs manual QA on Sepolia (#70) |
 | Sybil resistance | ⚠️ / 🔵 | Nothing stops one person holding several accounts. v1 relies on attendee verification, two-officer sign-off and anomaly monitoring, **not** weekly Rep budgets or decay. `.edu` gating (one inbox, not one person) is v2 (#50, #71) |
 
 ---
@@ -167,7 +167,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Database-backed relay queue | 🔧 | Work and nonces are rows in PostgreSQL; check-ins are coalesced into `mintBatch`; bounded retries end in `FAILED` with a reason (#59) |
 | Single relay sender | 🔧 | One backend instance; a unique key per nonce prevents double use |
 | Gasless voting | 🟡 | Members sign `castVoteBySig`; relay submits; **anyone** can submit a signed vote. Relay cannot forge it, but can censor its own submissions; independent verification and a funded fallback are needed (#58) |
-| Censorship check from the frontend | 🟡 | Frontend reads `hasVoted` over public RPC, not via the backend, and warns if a signed vote hasn't landed. The API returns the signed vote so anyone can submit it (#58) |
+| Censorship check from the frontend | 🔧 | The browser reads `hasVoted` over public RPC, not via the backend. After 60 s or a relay refusal it hands the member the signed vote to submit themselves or give an officer, who verifies and submits it from the app (#58) |
 | One tx per relayed vote (no Multicall) | 🔧 | One bad vote can't revert others. The API accepts a vote only from its signer, with voting power, after simulating it; rate limited (#59) |
 | Nonce manager with stuck-tx replacement | 🔧 | Fee bump or cancel of the oldest stuck transaction, capped by `RELAY_MAX_FEE_GWEI`; `SUBMITTED` until `CONFIRMATIONS` blocks deep. Tested against a local node (#59) |
 | Relay key rotation runbook | 🟡 | Pause → governance rotates `RELAY_ROLE` (#52) |
@@ -221,7 +221,9 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | No secrets in the client | ✅ | Only `NEXT_PUBLIC_*` values (Privy app id, API URL) |
 | Security headers | ✅ | `frame-ancestors 'none'`, HSTS, `nosniff`, `Referrer-Policy`, `Permissions-Policy` (camera for this origin only). No script/connect CSP, so Privy keeps working (#81) |
 | Fail fast without Privy config | ✅ | `next.config.mjs` fails dev and build when `NEXT_PUBLIC_PRIVY_APP_ID` is missing (#49) |
-| Current influence and permanent history | 🟡 | Show pending officer approval, approved-awaiting-credit and credited influence with an as-of time. Current Rep decays without new events; timestamp/refresh caches. Lifetime AT/history is separate. No weekly-deferred-credit UI (#61, #68) |
+| Current influence and permanent history | 🔧 | Shows pending approval, awaiting credit and current Rep with the time it was read, re-read while open; lifetime attendance is separate. No weekly or deferred states (#61, #68) |
+| Proposal integrity | 🔧 | Actions are decoded from calldata in the browser, and the proposal is checked against its on-chain id before any vote can be signed |
+| Metadata preview before signing | 🔧 | Officers see a meeting's token metadata and CID before signing `createSession` (#74) |
 
 ---
 

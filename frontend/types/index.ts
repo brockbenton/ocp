@@ -8,10 +8,33 @@ export interface Session {
   createdBy: string;
   txHash: string | null;
   closeTxHash: string | null;
-  onchainStatus: 'PENDING' | 'CONFIRMED' | 'FAILED';
+  onchainStatus: TxStatus;
   closedAt: string | null;
   createdAt: string;
+  registryAddress: string;
+  isCurrentRegistry: boolean;
+  maxAttendees: number | null;
+  metadataCid: string | null;
+  repStatus: RepStatus;
+  closedBy: string | null;
+  confirmedBy: string | null;
+  recognizedAt: string | null;
+  listedCount: number;
+  creditCursor: number;
 }
+
+export type TxStatus = 'PENDING' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED';
+export type RepStatus = 'NONE' | 'PENDING' | 'CONFIRMED' | 'REJECTED' | 'CREDITED';
+
+/** Where one attendance stands on its way to becoming voting power. */
+export type TokenRepStatus =
+  | 'LEGACY'
+  | 'OPEN'
+  | 'PENDING_APPROVAL'
+  | 'AWAITING_CREDIT'
+  | 'CREDITED'
+  | 'REJECTED'
+  | 'NOT_LISTED';
 
 // Session with attendee count (admin list endpoint)
 export interface SessionWithCount extends Session {
@@ -22,7 +45,8 @@ export interface SessionWithCount extends Session {
 export interface Attendee {
   walletAddress: string;
   checkedInAt: string;
-  mintStatus: 'PENDING' | 'CONFIRMED' | 'FAILED';
+  mintStatus: TxStatus;
+  failureReason: string | null;
   txHash: string | null;
 }
 
@@ -35,7 +59,6 @@ export interface MemberStats {
   tokensEarned: number;
   allTimeAttendancePct: number;
   currentSemesterAttendancePct: number;
-  statusTier: 'General Member' | 'Official Member';
   lastSeen: string | null;
   joinedAt: string;
   currentStreak: number;
@@ -65,7 +88,8 @@ export interface VaultToken {
   date: string;
   semester: string;
   meetingNumber: number;
-  mintStatus: 'PENDING' | 'CONFIRMED' | 'FAILED';
+  mintStatus: TxStatus;
+  repStatus: TokenRepStatus;
   txHash: string | null;
   imageUrl: string;
   metadataUri: string | null;
@@ -96,7 +120,6 @@ export interface PersonalStats {
   currentSemester: string | null;
   currentSemesterTotal: number;
   currentSemesterAttendancePct: number;
-  statusTier: 'General Member' | 'Official Member';
   meetingsLast30Days: number;
   meetingsLast90Days: number;
   meetingsLast180Days: number;
@@ -104,7 +127,7 @@ export interface PersonalStats {
   longestStreak: number;
   lastSeen: string | null;
   semesterBreakdown: SemesterStat[];
-  badgeUrl: string;
+  badgeUrl: string | null;
 }
 
 // Admin overview from GET /api/v1/admin/overview
@@ -135,20 +158,9 @@ export interface AdminMe {
   walletAddress: string;
 }
 
-// Admin role from GET /api/v1/admin/roles
-export interface AdminRole {
-  id: string;
-  walletAddress: string;
-  grantedBy: string;
-  grantedAt: string;
-  revokedAt: string | null;
-  txHash?: string;
-}
-
 // Check-in response from POST /api/v1/check-in
 export interface CheckInResponse {
   checkInId: string;
-  jobId: string;
   sessionId: string;
   memberAddress: string;
   status: 'PENDING';
@@ -171,7 +183,116 @@ export interface LeaderboardEntry {
   streak: number;
   tokens: number;
   attendancePct: number;
+  /** Current decayed Rep (18 decimals), or null if the chain could not be read. */
+  rep: string | null;
   isYou: boolean;
+}
+
+export interface Leaderboard {
+  entries: LeaderboardEntry[];
+  /** When every Rep figure was read. */
+  repAsOf: string | null;
+}
+
+// GET /api/v1/members/:address/rep
+export interface MemberRep {
+  walletAddress: string;
+  rep: string | null;
+  totalSupply: string | null;
+  asOf: string | null;
+  waiting: { sessionId: string; name: string; status: TokenRepStatus }[];
+  history: {
+    type: 'CREDIT' | 'SKIPPED' | 'GRANT' | 'REVOKE' | 'UNBLOCK' | 'IMPORT';
+    amount: string;
+    nominal: string | null;
+    recognizedAt: string | null;
+    reason: string | null;
+    occurredAt: string;
+    txHash: string;
+  }[];
+}
+
+// GET /api/v1/club
+export interface Club {
+  chainId: number;
+  officers: { walletAddress: string; username: string | null }[];
+  pause: { paused: boolean; pausedUntil: number; unpauseApprover: string | null };
+  guardian: { address: string; active: boolean; expiresAt: number };
+  importFinalized: boolean;
+  proposalThreshold: string;
+  votingDelaySeconds: number;
+  votingPeriodSeconds: number;
+  quorumNumerator: number;
+  timelockDelaySeconds: number;
+  repHalfLifeSeconds: number;
+  openSessionWarnHours: number;
+}
+
+// GET /api/v1/admin/review
+export interface ReviewItem extends Omit<Session, 'listedCount'> {
+  attendees: { walletAddress: string; username: string | null }[];
+  flags: { code: string; message: string; wallets?: string[] }[];
+  canConfirm: boolean;
+}
+
+export interface CloseList {
+  sessionId: string;
+  attendees: `0x${string}`[];
+  waiting: number;
+  failed: number;
+}
+
+export interface MetadataPreview {
+  metadata: {
+    name: string;
+    description: string;
+    image: string;
+    attributes: { trait_type: string; value: string | number }[];
+  };
+  cid: string | null;
+}
+
+export type ProposalState =
+  | 'Pending'
+  | 'Active'
+  | 'Canceled'
+  | 'Defeated'
+  | 'Succeeded'
+  | 'Queued'
+  | 'Expired'
+  | 'Executed';
+
+// GET /api/v1/governance/proposals
+export interface Proposal {
+  proposalId: string;
+  proposer: string;
+  targets: string[];
+  values: string[];
+  calldatas: string[];
+  description: string;
+  createdAt: string;
+  queuedEta: string | null;
+  state: ProposalState;
+  snapshot: number;
+  deadline: number;
+  forVotes: string;
+  againstVotes: string;
+  abstainVotes: string;
+  /** Null until the snapshot has passed. */
+  quorum: string | null;
+}
+
+export interface SignedVote {
+  proposalId: string;
+  voter: string;
+  support: number;
+  signature: `0x${string}`;
+}
+
+export interface RelayedVote extends SignedVote {
+  status: TxStatus;
+  failureReason: string | null;
+  txHash: string | null;
 }
 
 // Editable member profile (GET/PATCH /members/me). avatarColor indexes the

@@ -13,7 +13,7 @@ import { useEmbeddedAddress } from '@/hooks/useProfile';
 import { CheckInResponse, VaultToken } from '@/types';
 import { QrIcon, CheckIcon, ClockIcon, CloseIcon, type IconProps } from '@/components/ui/icons';
 import { TOKEN_COLORS, colorNameForTopic, inkOn } from '@/lib/tokenArt';
-import { CLUB_NAME, CHAIN, CONTRACT_ADDRESS } from '@/lib/constants';
+import { CLUB_NAME, CHAIN, CONTRACT_ADDRESS, REP_PER_ATTENDANCE } from '@/lib/constants';
 import { checkInTypedData } from '@/lib/typedData';
 
 // QrScanner accesses browser APIs — load client-side only
@@ -46,6 +46,7 @@ const TOKEN_SHORT_MAX = 4;
 const EDITION_PAD = 3;
 // The token is already in the vault — the button navigates, it doesn't add.
 const ADD_TO_VAULT_LABEL = 'View in vault';
+const REP_PENDING_NOTE = `Rep pending: you earn ${REP_PER_ATTENDANCE} Rep once two officers approve this meeting.`;
 const SESSION_REF_PREFIX = 'Session #';
 const SESSION_REF_MAX = 8;
 const MINT_POLL_MS = 4000;
@@ -197,6 +198,14 @@ export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
             break;
           case 'SESSION_CLOSED':
             setErrorMessage('This session is already closed.');
+            setErrorVariant('closed');
+            break;
+          case 'SESSION_FULL':
+            setErrorMessage('This meeting reached its attendee limit. Talk to an officer.');
+            setErrorVariant('closed');
+            break;
+          case 'MINTING_PAUSED':
+            setErrorMessage('Officers have paused check-ins. Talk to an officer.');
             setErrorVariant('closed');
             break;
           case 'STALE_SIGNATURE':
@@ -374,6 +383,7 @@ export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
         </div>
 
         <div className="mt-8 flex flex-col gap-2.5">
+          <p className="text-center text-sm text-content-secondary">{REP_PENDING_NOTE}</p>
           <Link
             href={VAULT_HREF}
             className="flex h-14 items-center justify-center rounded bg-green text-base font-semibold text-canvas transition"

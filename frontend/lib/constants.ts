@@ -29,7 +29,16 @@ export const BASESCAN_URL = 'https://sepolia.basescan.org';
 // The chain the registry is deployed on.
 export const CHAIN = baseSepolia;
 
-// Deployed registry, from env; next.config.mjs fails the build without it because
-// check-in signatures are bound to this address.
+// Deployed contracts, from env; next.config.mjs fails the build without them.
+// Check-in signatures are bound to the registry address.
 export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+export const REP_ADDRESS = process.env.NEXT_PUBLIC_REP_ADDRESS as `0x${string}`;
+export const GOVERNOR_ADDRESS = process.env.NEXT_PUBLIC_GOVERNOR_ADDRESS as `0x${string}`;
+export const TIMELOCK_ADDRESS = process.env.NEXT_PUBLIC_TIMELOCK_ADDRESS as `0x${string}`;
+// RPC the browser checks votes and sends transactions through. Empty uses the chain's
+// public endpoint, which is independent of the club's backend.
+export const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || undefined;
+
+/** Nominal Rep earned by one verified attendance (a contract constant). */
+export const REP_PER_ATTENDANCE = 10;
 export const CONTRACT_EXPLORER_URL = `${BASESCAN_URL}/address/${CONTRACT_ADDRESS}`;

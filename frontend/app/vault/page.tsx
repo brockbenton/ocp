@@ -20,6 +20,7 @@ import { IconButton } from '@/components/ui';
 import { colorNameForTopic } from '@/lib/tokenArt';
 import { cn } from '@/lib/cn';
 import { VaultToken } from '@/types';
+import { TOKEN_REP_LABEL } from '@/lib/tokenRep';
 import { CLUB_NAME } from '@/lib/constants';
 import FullPageSpinner from '@/components/shared/FullPageSpinner';
 
@@ -29,6 +30,7 @@ const TOKENS_LABEL = 'tokens';
 const MORE_TOKENS_LABEL = 'more tokens';
 const MINT_PENDING_LABEL = 'Minting…';
 const MINT_FAILED_LABEL = 'Failed';
+const REP_TRAIT_LABEL = 'Rep';
 
 /** How many tokens the grid previews before collapsing the rest behind a "+N more" tile. */
 const MAX_VISIBLE_TOKENS = 9;
@@ -57,6 +59,7 @@ const SEASON_TRAIT_LABEL = 'Season';
 const MINT_TRAIT_LABEL = 'Mint';
 const MINT_TRAIT_VALUES: Record<VaultToken['mintStatus'], string> = {
   CONFIRMED: 'Confirmed onchain',
+  SUBMITTED: 'Minting',
   PENDING: 'Pending',
   FAILED: 'Failed',
 };
@@ -66,6 +69,13 @@ const CHIP_ACTIVE = 'bg-raised font-semibold text-content';
 const CHIP_INACTIVE = 'border border-line font-medium text-content-secondary hover:text-content';
 const MINT_BADGE_BASE =
   'pointer-events-none absolute right-2.5 top-2.5 z-10 rounded px-2 py-0.5 text-[10px] font-semibold';
+// Only states that still need the member's attention are badged on the tile.
+const REP_BADGE: Partial<Record<VaultToken['repStatus'], string>> = {
+  PENDING_APPROVAL: 'Rep pending',
+  AWAITING_CREDIT: 'Crediting',
+  REJECTED: 'No Rep',
+  NOT_LISTED: 'No Rep',
+};
 const MORE_TILE_CLASSES =
   'flex h-full min-h-[172px] flex-col items-center justify-center gap-2 rounded-tile border border-dashed border-line-strong bg-raised text-content-secondary transition hover:border-content-secondary';
 
@@ -272,6 +282,11 @@ function VaultTile({ token, onSelect }: VaultTileProps) {
         onClick={() => onSelect(token)}
       />
       {token.mintStatus !== 'CONFIRMED' && <MintStatusBadge status={token.mintStatus} />}
+      {token.mintStatus === 'CONFIRMED' && REP_BADGE[token.repStatus] && (
+        <span className={cn(MINT_BADGE_BASE, 'bg-status-warn-bg text-status-warn')}>
+          {REP_BADGE[token.repStatus]}
+        </span>
+      )}
     </div>
   );
 }
@@ -293,6 +308,9 @@ function toDetail(token: VaultToken): TokenDetailData {
     traits: [
       { label: SEASON_TRAIT_LABEL, value: token.semester, tone: TONE_NEUTRAL },
       { label: MINT_TRAIT_LABEL, value: MINT_TRAIT_VALUES[token.mintStatus], tone: TONE_INFO },
+      ...(TOKEN_REP_LABEL[token.repStatus] && token.mintStatus === 'CONFIRMED'
+        ? [{ label: REP_TRAIT_LABEL, value: TOKEN_REP_LABEL[token.repStatus]!, tone: TONE_INFO }]
+        : []),
     ],
     txHash: token.txHash,
   };
@@ -301,8 +319,8 @@ function toDetail(token: VaultToken): TokenDetailData {
 
 // ── components ───────────────────────────────────────────────────────────────
 
-function MintStatusBadge({ status }: { status: 'PENDING' | 'FAILED' }) {
-  const isPending = status === 'PENDING';
+function MintStatusBadge({ status }: { status: 'PENDING' | 'SUBMITTED' | 'FAILED' }) {
+  const isPending = status !== 'FAILED';
   return (
     <span
       className={cn(

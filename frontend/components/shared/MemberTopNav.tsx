@@ -7,7 +7,7 @@ import RoleSwitch from '@/components/shared/RoleSwitch';
 import { useAdminMe } from '@/hooks/useAdminMe';
 import { cn } from '@/lib/cn';
 
-type MemberNavKey = 'home' | 'vault' | 'leaderboard';
+type MemberNavKey = 'home' | 'vault' | 'leaderboard' | 'governance';
 
 export interface MemberTopNavProps {
   active?: MemberNavKey;
@@ -23,12 +23,14 @@ const ROUTES: Record<MemberNavKey, string> = {
   home: '/',
   vault: '/vault',
   leaderboard: '/leaderboard',
+  governance: '/governance',
 };
 
 const NAV_ITEMS: MemberNavItem[] = [
   { key: 'home', label: 'Home', href: ROUTES.home },
   { key: 'vault', label: 'Vault', href: ROUTES.vault },
   { key: 'leaderboard', label: 'Leaderboard', href: ROUTES.leaderboard },
+  { key: 'governance', label: 'Governance', href: ROUTES.governance },
 ];
 
 const NAV_ITEM_BASE = 'rounded-md px-3.5 py-2 text-sm transition';

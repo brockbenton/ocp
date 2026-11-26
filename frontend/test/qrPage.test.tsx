@@ -2,25 +2,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const router = { replace: vi.fn() };
-vi.mock('@privy-io/react-auth', () => ({
-  getIdentityToken: async () => 'test-token',
-  usePrivy: () => ({ ready: true, authenticated: true }),
-}));
-vi.mock('next/navigation', () => ({
-  useParams: () => ({ sessionId: '42' }),
-  useRouter: () => router,
-}));
-vi.mock('next/link', () => ({
-  default: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
-  ),
-}));
 vi.mock('react-qr-code', () => ({
   default: ({ value }: { value: string }) => <div data-testid="qr">{value}</div>,
 }));
 
 import AdminSessionQRPage from '@/app/admin/sessions/[sessionId]/qr/page';
+import { params } from './harness';
 import { qrTiming } from '@/lib/qrTiming';
 
 const TTL = 300_000;
@@ -37,6 +24,7 @@ const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
 beforeEach(() => {
+  params.sessionId = '42';
   vi.useFakeTimers({ now: START });
   qrStatus = 200;
   qrStalls = false;
