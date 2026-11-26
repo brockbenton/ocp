@@ -262,7 +262,8 @@ export function attendeesHashOf(attendees: string[]): `0x${string}` {
 /** Credits confirmed sessions one page at a time; the on-chain cursor makes retries safe. */
 async function sendCreditPages(): Promise<void> {
   const sessions = await prisma.session.findMany({
-    where: { registryAddress: currentRegistry(), repStatus: 'CONFIRMED' },
+    // The attendee list arrives with the indexed close event.
+    where: { registryAddress: currentRegistry(), repStatus: 'CONFIRMED', closeTxHash: { not: null } },
     orderBy: { recognizedAt: 'asc' },
   });
   if (sessions.length === 0) return;
