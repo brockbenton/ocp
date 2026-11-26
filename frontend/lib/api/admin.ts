@@ -104,21 +104,6 @@ export async function listAdminRoles(token: string): Promise<AdminRole[]> {
   return apiRequest<AdminRole[]>('/admin/roles', { token });
 }
 
-export async function grantAdminRole(walletAddress: string, token: string): Promise<AdminRole> {
-  return apiRequest<AdminRole>('/admin/roles', {
-    method: 'POST',
-    body: JSON.stringify({ walletAddress }),
-    token,
-  });
-}
-
-export async function revokeAdminRole(walletAddress: string, token: string): Promise<{ txHash: string }> {
-  return apiRequest<{ txHash: string }>(
-    `/admin/roles/${encodeURIComponent(walletAddress)}`,
-    { method: 'DELETE', token },
-  );
-}
-
 // A request that never settles would stall the projector's refresh, so it is abandoned.
 const QR_REQUEST_TIMEOUT_MS = 15_000;
 

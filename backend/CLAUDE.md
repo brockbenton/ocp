@@ -92,6 +92,7 @@ type QRPayload = {
 ## FORBIDDEN
 - Raw `fetch` to RPC — use viem
 - Directly calling contract from route handler — always go through relay queue
+- Granting or revoking roles from the backend, or giving it a `DEFAULT_ADMIN_ROLE` key (#82)
 - Storing private keys anywhere except environment variables
 - `any` type
 - `console.log` — use a structured logger (e.g. `pino`)
@@ -124,6 +125,5 @@ DEFAULT_SEMESTER_ART_CID   # Default: placeholder CID
 SEMESTER_ART_CIDS          # JSON object {semester: cid}. Default: none
 OFFICIAL_MEMBER_THRESHOLD  # Default: 75
 RELAY_MIN_BALANCE_ETH      # Default: 0.005
-DEFAULT_ADMIN_PRIVATE_KEY  # LEGACY, holds DEFAULT_ADMIN_ROLE (#55, #82). Default: unset
 ```
 

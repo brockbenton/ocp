@@ -38,7 +38,7 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 | Party | Trusted for | Cannot do (by design) |
 |---|---|---|
 | **Members** | Their own check-ins and votes | Transfer tokens or Rep; vote with someone else's power |
-| **Officers** (`ADMIN_ROLE`) | Running sessions, setting attendee counts, confirming eligible attendees | Role changes require governance approval and Timelock execution; officers must not grant/revoke directly. ⚠️ Live backend bypass when `DEFAULT_ADMIN_PRIVATE_KEY` is configured (#82). 🟡 v1: one officer cannot create attendance Rep alone; officer count cannot fall below 2. Two colluding officers can approve repeated fake sessions: **no aggregate issuance-rate bound**. |
+| **Officers** (`ADMIN_ROLE`) | Running sessions, setting attendee counts, confirming eligible attendees | Role changes require governance approval and Timelock execution; officers must not grant/revoke directly. The backend has no route or key that changes roles (#82). ⚠️ The legacy registry still lets the `DEFAULT_ADMIN_ROLE` holder change roles without a vote until it is frozen. 🟡 v1: one officer cannot create attendance Rep alone; officer count cannot fall below 2. Two colluding officers can approve repeated fake sessions: **no aggregate issuance-rate bound**. |
 | **Backend + relay** | Verifying check-ins (attendance is attested **off-chain**), paying gas, submitting signed votes | 🟡 v1: create Rep, forge votes, change roles or parameters |
 | **Governance** (Governor + Timelock) | Roles, parameters, officer elections, Rep grants/revokes | 🟡 v1: remove its own admin role; set parameters outside on-chain bounds |
 | **Guardian** (Safe, bootstrap only) | Vetoing (cancelling) malicious proposals during bootstrap | 🟡 v1: propose or execute anything; keep the veto past 120 days |
@@ -55,11 +55,10 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 |---|---|---|---|
 | `RELAY_PRIVATE_KEY` | `RELAY_ROLE` | `mint` from the check-in queue | Mint attendance tokens into any **open** session, to any address ⚠️ |
 | `ADMIN_SIGNER_PRIVATE_KEY` | `ADMIN_ROLE` | `createSession` / `closeSession` **and** signing QR payloads | Create sessions + forge valid QR codes; with the relay key, fabricate attendance ⚠️ |
-| `DEFAULT_ADMIN_PRIVATE_KEY` (optional) | `DEFAULT_ADMIN_ROLE` | Legacy dashboard role grants/revocations and `setBaseCid`; role-change path must be removed (#82, #55) | **Full control of the contract** ⚠️; officers can invoke the backend signer to grant/revoke other officers without a vote when configured (#82) |
 
 - ✅ All keys live only in backend env vars — never shipped to the frontend.
-- If `DEFAULT_ADMIN_PRIVATE_KEY` is unset, dashboard role grants/revocations return `503`; metadata publishing can still stage/pin metadata, but cannot update the on-chain base CID.
-- ⚠️ Deployment state is unverified: audit whether this key is configured in each environment and which on-chain privileges its signer holds. Remove the governance bypass and retire the key/code paths; rotation alone does not fix authorization (#82, #55).
+- ✅ The backend no longer reads `DEFAULT_ADMIN_PRIVATE_KEY`: no role-change route, no `setBaseCid` path, no grant script (#82, #55). The `DEFAULT_ADMIN_ROLE` holder applies role changes and the base CID from their own wallet (`smart-contract/DEPLOY.md`).
+- ⚠️ Deployment state is unverified: delete the variable from every environment where it is set, and record which wallet holds `DEFAULT_ADMIN_ROLE` on-chain. Removing the code does not revoke that role (#82, #55).
 
 ### v1 target (Phase 5)
 
@@ -72,7 +71,7 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 | Guardian Safe | Timelock `CANCELLER` only | 🟡 Veto during bootstrap; anyone can expire it after 120 days |
 | Deployer | temporary Timelock admin | 🟡 Grants Governor roles, then renounces everything; test asserts it holds nothing (#62) |
 
-- 🟡 Retire `DEFAULT_ADMIN_PRIVATE_KEY` and its code paths (`/admin/roles`, `setBaseCidOnChain`) (#55)
+- ✅ `DEFAULT_ADMIN_PRIVATE_KEY` and its code paths are removed from the backend (#55)
 - 🟡 Freeze the legacy registry: close all sessions, revoke relay + admin roles, renounce default admin (#51, #55)
 
 ---
@@ -180,7 +179,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Uniform error format, no stack traces | ✅ | Global error handler returns `{ error: { code, message } }` |
 | Async errors reach the error handler | ✅ | `express-async-errors` |
 | Admin auth checks the chain, fails closed | ✅ | `adminMiddleware` reads on-chain `ADMIN_ROLE` on every request; RPC failure → `503`, not access (`backend/src/middleware/admin.ts`) |
-| Governance-only role changes | ⚠️ → 🟡 | Both grants and revocations require an approved governance vote and Timelock execution. Live POST/DELETE `/api/v1/admin/roles` paths allow officers to use the default-admin signer when configured; remove this bypass and add regression tests (#82, #55) |
+| Governance-only role changes | ✅ API / 🟡 on-chain | The API has no grant or revoke route and no admin signer; regression tests hold that even with the old key configured. `GET /api/v1/admin/roles` is read-only and reconciles records against `hasRole`. On-chain enforcement through Governor + Timelock arrives with the Phase 5 contracts (#82, #55) |
 | Live officer checks stay live | ✅ | The authoritative officer source is the registry's on-chain `hasRole(ADMIN_ROLE)`, read on every session, QR, export and PII request with no cache, so a revoked officer loses access on their next request. RPC failure fails closed (#69) |
 | CORS | ✅ | Exact-match origin allowlist from `CORS_ORIGINS` (required at startup); methods `GET, POST, PATCH, DELETE` and headers `Authorization, Content-Type` only (#80) |
 | Security headers | ✅ | `helmet` on the API: `default-src 'none'; frame-ancestors 'none'`, HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; no `X-Powered-By`. Only the public SVG art routes are cross-origin embeddable (#81) |

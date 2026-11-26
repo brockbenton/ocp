@@ -1,10 +1,11 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 
 const root = path.resolve(__dirname, '..');
 
 function sourceFiles(dir: string): string[] {
+  if (!existsSync(path.join(root, dir))) return [];
   return readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry) => {
     const rel = path.join(dir, entry.name);
     if (entry.isDirectory()) return sourceFiles(rel);

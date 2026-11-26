@@ -8,8 +8,6 @@ vi.mock('../src/lib/contract', () => ({
   relayWalletClient: { writeContract: async () => '0xmint' },
   adminAccount: { address: '0x1111111111111111111111111111111111111111' },
   relayAccount: { address: '0x2222222222222222222222222222222222222222' },
-  defaultAdminWalletClient: null,
-  defaultAdminAccount: null,
   chain: {},
 }));
 
