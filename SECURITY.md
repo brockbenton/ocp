@@ -30,7 +30,7 @@ When reviewing a PR, check it against the inventory below and flag:
 | ⚠️ **Gap** | Known weakness in the live system, not yet fixed |
 | 📝 **Accepted** | Residual risk we've knowingly accepted |
 
-Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (PR #45). Review findings are tracked in issue #77. **Current policy is Revision 3.3 (2026-11-03): participation-earned Rep with gradual decay is required in v1.** This security PR and PR #45 must land together for the complete design; planned protections below are not live guarantees.
+Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations. Review findings are tracked in issue #77. **Current policy is Revision 3.3 (2026-11-03): participation-earned Rep with gradual decay is required in v1.** Rows marked 🔧 are not live guarantees until the Phase 5 contracts are deployed.
 
 ---
 
@@ -40,9 +40,9 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 |---|---|---|
 | **Members** | Their own check-ins and votes | Transfer tokens or Rep; vote with someone else's power |
 | **Officers** (`ADMIN_ROLE`) | Running sessions, setting attendee counts, confirming eligible attendees | Role changes require governance approval and Timelock execution; officers must not grant/revoke directly. The backend has no route or key that changes roles (#82). ⚠️ The legacy registry still lets the `DEFAULT_ADMIN_ROLE` holder change roles without a vote until it is frozen. 🟡 v1: one officer cannot create attendance Rep alone; officer count cannot fall below 2. Two colluding officers can approve repeated fake sessions: **no aggregate issuance-rate bound**. |
-| **Backend + relay** | Verifying check-ins (attendance is attested **off-chain**), paying gas, submitting signed votes | 🟡 v1: create Rep, forge votes, change roles or parameters |
-| **Governance** (Governor + Timelock) | Roles, parameters, officer elections, Rep grants/revokes | 🟡 v1: remove its own admin role; set parameters outside on-chain bounds |
-| **Guardian** (Safe, bootstrap only) | Vetoing (cancelling) malicious proposals during bootstrap | 🟡 v1: propose or execute anything; keep the veto past 120 days |
+| **Backend + relay** | Verifying check-ins (attendance is attested **off-chain**), paying gas, submitting signed votes | 🔧 v1: create Rep, forge votes, change roles or parameters |
+| **Governance** (Governor + Timelock) | Roles, parameters, officer elections, Rep grants/revokes | 🔧 v1: remove its own admin role; set parameters outside on-chain bounds |
+| **Guardian** (Safe, bootstrap only) | Vetoing (cancelling) malicious proposals during bootstrap | 🔧 v1: propose or execute anything; keep the veto past 120 days |
 
 > 📝 **Core accepted risk:** whether someone was physically in the room is decided off-chain (QR + backend + officers). On-chain checks enforce per-session counts and distinct-officer approval; they cannot prove presence or cap issuance across repeated sessions. Gradual decay is not Sybil resistance or protection against fresh fraudulent Rep.
 
@@ -66,12 +66,12 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 
 | Holder | Role | Notes |
 |---|---|---|
-| Timelock | `DEFAULT_ADMIN_ROLE` on registry + Rep | 🟡 Non-revocable / non-transferable — governance can't lock itself out |
-| Officers (min 2) | `ADMIN_ROLE` | 🟡 Send their own txs from Privy embedded wallets funded with a little Base ETH |
-| Relay | `RELAY_ROLE` | 🟡 Mints attendance tokens only; Rep is never minted by the relay |
-| QR signer | **no role** | 🟡 New key per environment, signs QR payloads only (#55) |
-| Guardian Safe | Timelock `CANCELLER` only | 🟡 Veto during bootstrap; anyone can expire it after 120 days |
-| Deployer | temporary Timelock admin | 🟡 Grants Governor roles, then renounces everything; test asserts it holds nothing (#62) |
+| Timelock | `DEFAULT_ADMIN_ROLE` on registry + Rep | 🔧 Non-revocable / non-transferable — governance can't lock itself out |
+| Officers (min 2) | `ADMIN_ROLE` | 🔧 Send their own txs from Privy embedded wallets funded with a little Base ETH |
+| Relay | `RELAY_ROLE` | 🔧 Mints attendance tokens only; Rep is never minted by the relay |
+| QR signer | **no role** | 🔧 New key per environment, signs QR payloads only (#55) |
+| Guardian Safe | Timelock `CANCELLER` only | 🔧 Veto during bootstrap; anyone can expire it after 120 days |
+| Deployer | temporary Timelock admin | 🔧 Grants Governor roles, then renounces everything; test asserts it holds nothing (#62) |
 
 - ✅ `DEFAULT_ADMIN_PRIVATE_KEY` and its code paths are removed from the backend (#55)
 - 🟡 Freeze the legacy registry: close all sessions, revoke relay + admin roles, renounce default admin (#51, #55)
@@ -107,9 +107,9 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 | QR + check-in signatures bound to chain + contract | ✅ | Both use the EIP-712 domain `{name: "OCP Check-In", version: "1", chainId, verifyingContract: registry}`, so neither replays across chains or registries. Sessions are unique on `(registryAddress, sessionIdOnchain)` and only looked up that way (#56) |
 | Officer-set max attendance per session | 🔧 | Set at `createSession` (the UI pre-fills a suggestion); enforced on-chain for minting and refused early by the API (#50) |
 | Open-session warning | 🔧 | Officers are alerted once, and the dashboard lists sessions open longer than `OPEN_SESSION_WARN_HOURS` (default 6). A nudge only: sessions never auto-close |
-| No time limits on creating sessions / QR codes | 🟡 decided | Officers can start a session any time; protection relies on attendee caps and two-officer review; no aggregate Rep issuance-rate limit |
+| No time limits on creating sessions / QR codes | 🔧 | Officers can start a session any time; protection relies on attendee caps and two-officer review; no aggregate Rep issuance-rate limit |
 
-> ⚠️ A photo of the QR shared in a group chat works remotely until it expires (5 min once #72 ships). Mitigated by `maxAttendees`, two-officer attendee review and anomaly alerts. There is no club-wide weekly Rep budget; decay does not verify presence.
+> ⚠️ A photo of the QR shared in a group chat works remotely until it expires (5 minutes). Mitigated by `maxAttendees`, two-officer attendee review and anomaly alerts. There is no club-wide weekly Rep budget; decay does not verify presence.
 
 ---
 
@@ -163,14 +163,14 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 
 | Feature | Status | Details |
 |---|---|---|
-| Gasless for members | ✅ | Backend wallet pays all mint gas |
+| Gasless for members | ✅ | The relay pays gas for mints (and, in Phase 5, Rep credit and signed votes) |
 | Database-backed relay queue | 🔧 | Work and nonces are rows in PostgreSQL; check-ins are coalesced into `mintBatch`; bounded retries end in `FAILED` with a reason (#59) |
 | Single relay sender | 🔧 | One backend instance; a unique key per nonce prevents double use |
-| Gasless voting | 🟡 | Members sign `castVoteBySig`; relay submits; **anyone** can submit a signed vote. Relay cannot forge it, but can censor its own submissions; independent verification and a funded fallback are needed (#58) |
+| Gasless voting | 🔧 | Members sign `castVoteBySig`; relay submits; **anyone** can submit a signed vote. Relay cannot forge it, but can censor its own submissions; independent verification and a funded fallback are needed (#58) |
 | Censorship check from the frontend | 🔧 | The browser reads `hasVoted` over public RPC, not via the backend. After 60 s or a relay refusal it hands the member the signed vote to submit themselves or give an officer, who verifies and submits it from the app (#58) |
 | One tx per relayed vote (no Multicall) | 🔧 | One bad vote can't revert others. The API accepts a vote only from its signer, with voting power, after simulating it; rate limited (#59) |
 | Nonce manager with stuck-tx replacement | 🔧 | Fee bump or cancel of the oldest stuck transaction, capped by `RELAY_MAX_FEE_GWEI`; `SUBMITTED` until `CONFIRMATIONS` blocks deep. Tested against a local node (#59) |
-| Relay key rotation runbook | 🟡 | Pause → governance rotates `RELAY_ROLE` (#52) |
+| Relay key rotation runbook | 🔧 | Pause → governance rotates `RELAY_ROLE` (#52) |
 | Sessions stay mintable while open | ⚠️ / 📝 | A leaked relay key can mint tokens into open sessions; once v1 ships those carry no Rep (cosmetic) |
 
 ---
@@ -206,11 +206,11 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 
 | Feature | Status | Details |
 |---|---|---|
-| On-chain voting with Rep | 🟡 | OZ Governor + Timelock reading decay-aware IVotes. Member signatures are relayed; weight/quorum fixed at proposal snapshot, independent of later decay (#61, #68) |
-| Officer elections via proposals | 🟡 | All role grants and revocations require approved governance proposals and Timelock execution; no direct officer or backend-signer bypass (#82). Proposals call `grantRole` / `revokeRole(ADMIN_ROLE)`; one semester per term by convention. Approval-voting elections contract is v2 (#53) |
-| Proposing needs gas | 🟡 | Officers (and funded members) propose directly; gasless proposals are v2 (#63) |
-| Timelock delay on every change | 🟡 | 1–7 days (bounded) so members can react to a bad proposal |
-| Guardian veto during bootstrap | 🟡 | Cancel-only; renounced after the first election or expired after 120 days |
+| On-chain voting with Rep | 🔧 | OZ Governor + Timelock reading decay-aware IVotes. Member signatures are relayed; weight/quorum fixed at proposal snapshot, independent of later decay (#61, #68) |
+| Officer elections via proposals | 🔧 | All role grants and revocations require approved governance proposals and Timelock execution; no direct officer or backend-signer bypass (#82). Proposals call `grantRole` / `revokeRole(ADMIN_ROLE)`; one semester per term by convention. Approval-voting elections contract is v2 (#53) |
+| Proposing needs gas | 🔧 | Officers (and funded members) propose directly; gasless proposals are v2 (#63) |
+| Timelock delay on every change | 🔧 | 1–7 days (bounded) so members can react to a bad proposal |
+| Guardian veto during bootstrap | 🔧 | Cancel-only; renounced after the first election or expired after 120 days |
 
 ---
 
@@ -235,7 +235,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Testnet first | ✅ | Base Sepolia; mainnet only after a pilot semester + audit |
 | Relay balance monitoring | 🔧 | Warns below `RELAY_MIN_BALANCE_ETH`; top-up and incident runbook in `smart-contract/DEPLOY.md` (#73 for per-club budgets in v2) |
 | Officer wallet funding | 🟡 | Small Base ETH per officer; who funds it is an open decision |
-| Audits | 🟡 | `contract-auditor` + `security-reviewer` on the 5a code; external audit before mainnet |
+| Audits | 🟡 | A review of the 5a code by someone other than its author, and an external audit before mainnet |
 
 ---
 

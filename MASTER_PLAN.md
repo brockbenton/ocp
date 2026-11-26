@@ -2,7 +2,7 @@
 
 ## Mission
 
-Build an onchain protocol for running clubs, starting with a university blockchain club. Members check in at meetings and receive non-transferable attendance tokens (Soulbound Tokens / SBTs). These tokens power attendance statistics, member status tiers, and admin tooling — replacing error-prone Google Forms with a tamper-resistant, onchain alternative that doubles as a real-world Web3 onboarding experience.
+Build an onchain protocol for running clubs, starting with a university blockchain club. Members check in at meetings and receive non-transferable attendance tokens (Soulbound Tokens / SBTs). These tokens power attendance statistics, voting power and officer tooling — replacing error-prone Google Forms with a tamper-resistant, onchain alternative that doubles as a real-world Web3 onboarding experience.
 
 ---
 
@@ -19,8 +19,8 @@ The POAP protocol requires manual approval per event from the POAP team, ties ad
 | Token standard | ERC-1155 soulbound (non-transferable) | Each token type = one meeting. Batch mint support. Can't be sold/traded. |
 | Chain | **Base** (Coinbase L2) | Cheap gas, EVM-compatible, strong onboarding story for new crypto users |
 | Wallet UX | **Privy** (embedded wallets) | Email, Google, or passkey login creates wallet under the hood — zero MetaMask required to start |
-| Gas model | Backend sponsors gas (gasless for members) | Admin backend wallet pays gas. Members never touch ETH. |
-| Anti-cheat | Time-windowed, admin-signed QR codes | Session payload signed by admin key, expires in N minutes, shown at physical meeting |
+| Gas model | Relay sponsors check-ins and votes | The relay pays for mints, Rep credit and signed votes. Officers, and members who propose, fund their own wallets with a little ETH. |
+| Anti-cheat | Time-windowed signed QR codes | Payload signed by a key with no on-chain role, valid 5 minutes, shown at the physical meeting |
 | Backend | Lightweight Node.js + PostgreSQL | Records check-ins for fast stat queries. Sponsors gasless transactions. |
 | Admin roles | On-chain `AccessControl` (OpenZeppelin) | Multiple admins, role-based, no single point of failure |
 
@@ -58,44 +58,28 @@ The POAP protocol requires manual approval per event from the POAP team, ties ad
 
 ## Architecture Overview
 
+The Phase 5 system (implemented, not yet deployed):
+
 ```
-Member (browser)
-    │
-    ├── Privy SDK (social login → embedded wallet)
-    │
-    ▼
-Next.js Frontend
-    │
-    ├── /check-in       Scan QR → verify session → sign message → submit
-    ├── /vault          View all attendance tokens
-    ├── /stats          Personal attendance stats
-    └── /admin          Admin dashboard (protected)
-    │
-    ▼
-Node.js Backend API
-    │
-    ├── POST /sessions          Admin creates meeting session
-    ├── GET  /sessions/:id/qr   Generate time-limited signed QR payload
-    ├── POST /check-in          Verify QR sig + member sig → queue mint tx
-    ├── GET  /members/:addr     Member stats (attendance %, streaks, tokens)
-    ├── GET  /admin/members     All members with status
-    └── GET  /admin/sessions    Session history + attendance lists
-    │
-    └── Transaction Relay
-        └── Records confirmed check-ins (source of truth) + signs & sends mint txs to Base
-    │
-    ▼
-AttendanceRegistry.sol (Base)
-    │
-    ├── createSession(sessionId, metadata)   Admin only
-    ├── mint(to, sessionId)                  Relay only
-    ├── balanceOf(address, sessionId)        Public read
-    └── soulbound: _update reverts on transfer
+Member / officer (browser, Privy embedded wallet)
+    │  check-in and votes: signatures        officers and proposers: their own transactions
+    ▼                                                          │
+Next.js Frontend ── reads votes over public RPC ───────────────┤
+    │  /check-in /vault /stats /leaderboard /governance /admin │
+    ▼                                                          ▼
+Node.js Backend API                                   Base contracts
+    ├── POST /check-in, /governance/votes             ├── AttendanceRegistry2  sessions, tokens, sign-off
+    ├── GET  /sessions/:id/qr                         ├── ClubRep              decaying voting power
+    ├── GET  /admin/review, /members, /club           ├── ClubGovernor         proposals and votes
+    ├── Relay: mints, credit pages, signed votes ───▶ └── ClubTimelock         delayed execution
+    └── Indexer: contract events → PostgreSQL ◀───────
 ```
+
+The legacy `AttendanceRegistry` below is what is deployed today; it is frozen at cutover.
 
 ---
 
-## Smart Contract Design
+## Smart Contract Design (legacy, Phases 1–4)
 
 ### `AttendanceRegistry.sol`
 
@@ -136,27 +120,22 @@ Token metadata (IPFS):
 ## Anti-Manipulation: QR Code Flow
 
 ```
-1. Admin opens /admin/sessions → clicks "Start Check-In"
-2. Backend creates session record, generates payload:
-   { sessionId, expiresAt (now + 5min), nonce } signed by ADMIN_ROLE key
-3. Frontend renders QR code from signed payload — displayed on projector
-4. Member opens app → scans QR
-5. Frontend sends payload to backend:
-   - Backend verifies admin signature ✓
-   - Backend verifies timestamp not expired ✓
-   - Backend verifies member hasn't already checked in ✓
-6. Member's Privy wallet signs EIP-712 CheckIn{sessionId, member, signedAt},
+1. An officer starts a meeting from their wallet (createSession with an attendee cap)
+2. The backend signs a QR payload { sessionId, issuedAt, expiresAt (now + 5 min), nonce }
+   with the QR key, which holds no on-chain role
+3. The projector shows it and fetches the next one before it expires
+4. The member scans it and signs EIP-712 CheckIn{sessionId, member, signedAt},
    bound to the chain and registry (as is the QR)
-7. Member signs (one tap — Privy handles UX)
-8. Backend queues mint transaction: relay wallet → contract.mint(member, sessionId)
-9. Token lands in member's wallet. Done.
+5. The backend verifies both signatures, the expiry, the cap and that the member hasn't
+   checked in, then queues the mint; the relay mints in batches
+6. The token lands in the member's wallet. Rep follows only after two officers approve.
 
 Anti-cheat properties:
-  - QR expires after 5 minutes (can be configured shorter) and the projector page refreshes it before then
-  - Each sessionId is single-use per address (contract enforces)
-  - Payload is cryptographically signed — can't be forged
-  - Admin must be physically present to generate the QR
-  - Members must have a wallet tied to their identity (Privy account)
+  - QR expires after 5 minutes (can be configured shorter)
+  - One token per address per session (contract enforces)
+  - Payloads are signed and can't be forged or replayed on another chain or registry
+  - Presence is attested off-chain: a shared photo works until it expires
+  - Members need a wallet tied to a Privy account (which does not prove unique people)
 ```
 
 ---
@@ -195,7 +174,7 @@ Anti-cheat properties:
   - Attendance % (all-time, current semester)
   - Status tier
   - Last seen
-- [x] Member status tiers (configurable thresholds):
+- [x] Member status tiers (configurable thresholds) — **attendance tiers retired in Phase 5**:
   - `General Member` — < 75% attendance
   - `Official Member` — ≥ 75% attendance
   - `Founding Member` — present for X% of all-time meetings (admin-granted)
@@ -604,8 +583,8 @@ Rep is voting power, so these guarantees matter. What v1 actually guarantees (de
 - Members can check in within 30 seconds of scanning QR
 - Zero duplicate check-ins per session (enforced by contract)
 - Attendance stats load in < 1 second (indexed, not live chain queries)
-- Admin can view full club roster with statuses in one view
-- Zero gas cost to members
+- Officers can view the full roster with attendance and Rep in one view
+- Checking in and voting cost members nothing
 
 ---
 
