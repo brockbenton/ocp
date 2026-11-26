@@ -169,8 +169,10 @@ API builds metadata URIs from that variable, not from the contract.
 Sign with an encrypted keystore (`--account <name>`). Variables are listed in `.env.example`.
 Order matters; each script refuses to run if the step before it is incomplete.
 
-1. **Stop the old backend** and make no more session or role changes. Anything written after the
-   export is left out of the freeze checks and the import.
+1. **Stop the old backend** once queued check-ins have finished minting (no row in `check_ins`
+   is still `PENDING`), and make no more session or role changes. Anything written after the export
+   is left out of the freeze checks and the import, and a token not minted by then never will be:
+   the new relay does not pick it up.
 2. **Export legacy history** (read-only):
    `cd backend && npx tsx scripts/legacy-export.ts <rpc-url> <legacy-registry> <deploy-block> ../smart-contract/data/legacy.json`.
    Review the role holders, sessions and accounts it lists. The freeze and import checks are only
