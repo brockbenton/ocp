@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { createApp } from './app';
 import { startMintWorker } from './jobs/mint.job';
 import logger from './lib/logger';
+import { adoptUnscopedSessions } from './lib/session';
 
 const required = [
   'DATABASE_URL',
@@ -31,9 +32,17 @@ const app = createApp();
 
 const PORT = parseInt(process.env.PORT ?? '3001');
 
-app.listen(PORT, () => {
-  logger.info({ msg: `Backend listening on port ${PORT}` });
-  startMintWorker();
-});
+// Sessions must be scoped to the registry before any request looks one up.
+adoptUnscopedSessions()
+  .then(() => {
+    app.listen(PORT, () => {
+      logger.info({ msg: `Backend listening on port ${PORT}` });
+      startMintWorker();
+    });
+  })
+  .catch((err: Error) => {
+    logger.error({ msg: 'Startup failed', err: err.message });
+    process.exit(1);
+  });
 
 export default app;

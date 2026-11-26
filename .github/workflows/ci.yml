@@ -77,3 +77,4 @@ jobs:
         env:
           # Placeholder: next.config.mjs requires it, and CI never talks to Privy.
           NEXT_PUBLIC_PRIVY_APP_ID: clci000000000000000000000
+          NEXT_PUBLIC_CONTRACT_ADDRESS: '0x0000000000000000000000000000000000000001'

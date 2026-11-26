@@ -25,7 +25,9 @@ model Member {
 
 model Session {
   id               String    @id @default(cuid())
-  sessionIdOnchain String    @unique @map("session_id_onchain")
+  /// Lowercase registry address. Empty only on rows awaiting adoption at startup.
+  registryAddress  String    @default("") @map("registry_address")
+  sessionIdOnchain String    @map("session_id_onchain")
   name             String
   date             DateTime
   semester         String
@@ -38,6 +40,7 @@ model Session {
 
   checkIns CheckIn[]
 
+  @@unique([registryAddress, sessionIdOnchain])
   @@map("sessions")
 }
 

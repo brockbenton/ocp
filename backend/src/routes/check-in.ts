@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
-import { recoverMessageAddress, isAddress, getAddress } from 'viem';
+import { recoverTypedDataAddress, getAddress } from 'viem';
 import { authMiddleware } from '../middleware/auth';
 import { checkInLimiter } from '../middleware/rateLimit';
 import { validate } from '../middleware/validate';
@@ -9,6 +9,8 @@ import { mintQueue } from '../lib/queue';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
 import { findSessionOr404, closingSessions } from '../lib/session';
+import { chain, registryAddress } from '../lib/contract';
+import { CHECK_IN_TYPES, checkInDomain } from '../lib/typedData';
 import { findOrCreateMember } from '../services/identity.service';
 
 const router = Router();
@@ -48,13 +50,20 @@ router.post(
       return;
     }
 
-    // 3. Recover member wallet address from their signature.
-    //    The message includes the member's wallet address to bind the signature to this specific signer.
-    const checkInMessage = `I am checking into session ${qr.sessionId} as ${privyWalletAddress} at ${signedAt}`;
+    // 3. Recover the member's wallet from their typed-data signature. The domain binds
+    //    it to this chain and registry, the struct to this session and this member.
+    const checksummedAddress = getAddress(privyWalletAddress);
     let recoveredAddress: `0x${string}`;
     try {
-      recoveredAddress = await recoverMessageAddress({
-        message: checkInMessage,
+      recoveredAddress = await recoverTypedDataAddress({
+        domain: checkInDomain(chain.id, registryAddress),
+        types: CHECK_IN_TYPES,
+        primaryType: 'CheckIn',
+        message: {
+          sessionId: BigInt(qr.sessionId),
+          member: checksummedAddress,
+          signedAt: BigInt(signedAt),
+        },
         signature: memberSignature as `0x${string}`,
       });
     } catch {
@@ -63,17 +72,10 @@ router.post(
     }
 
     // 4. Verify the recovered address matches the Privy-authenticated wallet (binds signature to identity)
-    if (recoveredAddress.toLowerCase() !== privyWalletAddress) {
+    if (recoveredAddress !== checksummedAddress) {
       res.status(400).json({ error: { code: 'ADDRESS_MISMATCH', message: 'Signature was not made by your linked wallet' } });
       return;
     }
-
-    if (!isAddress(recoveredAddress)) {
-      res.status(400).json({ error: { code: 'INVALID_ADDRESS', message: 'Recovered address is invalid' } });
-      return;
-    }
-
-    const checksummedAddress = getAddress(recoveredAddress);
 
     // 5. Look up the session
     const session = await findSessionOr404(qr.sessionId, res);

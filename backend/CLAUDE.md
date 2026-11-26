@@ -73,9 +73,18 @@ type QRPayload = {
   expiresAt: number;   // Unix timestamp ms (issuedAt + QR_TTL_MS)
   nonce: string;       // random uuid, single-use
 }
-// Signed with ADMIN_SIGNER_PRIVATE_KEY using viem's signMessage
+// Signed with ADMIN_SIGNER_PRIVATE_KEY as EIP-712 `CheckInQR`
 // Encoded as base64 JSON for QR code
 ```
+
+## Check-in signatures
+Both signatures are EIP-712 with domain `{name: 'OCP Check-In', version: '1', chainId,
+verifyingContract: CONTRACT_ADDRESS}` (`src/lib/typedData.ts`, mirrored in
+`frontend/lib/typedData.ts`). The member signs `CheckIn{sessionId, member, signedAt}`.
+
+## Session identity
+A session is identified by `(registryAddress, sessionIdOnchain)`. Look sessions up only with
+`sessionKey()` / `findSessionOr404()` from `src/lib/session.ts`, never by on-chain id alone.
 
 ## Transaction Relay
 - Relay wallet address holds `RELAY_ROLE` on the contract

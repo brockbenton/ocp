@@ -2,7 +2,7 @@
 
 import { PrivyProvider } from '@privy-io/react-auth';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { baseSepolia } from 'viem/chains';
+import { CHAIN } from '@/lib/constants';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,8 +26,8 @@ export default function AppProviders({ children }: AppProvidersProps) {
       <PrivyProvider
         appId={process.env.NEXT_PUBLIC_PRIVY_APP_ID as string}
         config={{
-          defaultChain: baseSepolia,
-          supportedChains: [baseSepolia],
+          defaultChain: CHAIN,
+          supportedChains: [CHAIN],
           appearance: {
             theme: 'dark',
             accentColor: '#22D974',

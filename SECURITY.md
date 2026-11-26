@@ -95,14 +95,14 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 
 | Feature | Status | Details |
 |---|---|---|
-| Admin-signed QR payload | ✅ | `{sessionId, issuedAt, expiresAt, nonce}` signed by the QR key; verified server-side (`qr.service.ts`) |
+| Admin-signed QR payload | ✅ | EIP-712 `CheckInQR{sessionId, issuedAt, expiresAt, nonce}` signed by the QR key; verified server-side (`qr.service.ts`) |
 | QR expiry | ✅ | Each QR is valid for 5 minutes (`QR_TTL_MS`, which can only shorten it). The projector page fetches a replacement 90 s before expiry, keeps the current code up while retrying, and never shows an expired one (#72) |
-| Member signature bound to their wallet | ✅ | Member signs `I am checking into session {id} as {addr} at {t}`; recovered address must equal the Privy wallet |
+| Member signature bound to their wallet | ✅ | Member signs EIP-712 `CheckIn{sessionId, member, signedAt}`; the recovered address must equal the authenticated embedded wallet |
 | Stale-signature window | ✅ | Member signature must be ≤ 60 s old and ≤ 10 s in the future |
 | One check-in per member per session | ✅ | DB `@@unique([memberId, sessionId])` **and** contract `AlreadyCheckedIn` |
 | Session must be open and confirmed on-chain | ✅ | Closed or unconfirmed sessions rejected |
 | Per-user rate limit | ✅ | 30 check-in attempts/min keyed by Privy user, not IP (a whole room shares one wifi IP) |
-| QR + check-in signatures bound to chain + contract | ⚠️ → 🟡 | Today they carry no `chainId` / contract address. v1 moves both to EIP-712 with `{chainId, verifyingContract}` so they can't replay across testnet/mainnet (#56) |
+| QR + check-in signatures bound to chain + contract | ✅ | Both use the EIP-712 domain `{name: "OCP Check-In", version: "1", chainId, verifyingContract: registry}`, so neither replays across chains or registries. Sessions are unique on `(registryAddress, sessionIdOnchain)` and only looked up that way (#56) |
 | Officer-set max attendance per session | 🟡 | Officer sets `maxAttendees` when starting each meeting (pre-filled from recent attendance); enforced on-chain for minting (#50) |
 | Open-session warning | 🟡 | Officer alert + organizer-dashboard list for sessions open longer than `OPEN_SESSION_WARN_HOURS` (default 6, off-chain config). A nudge only — sessions never auto-close |
 | No time limits on creating sessions / QR codes | 🟡 decided | Officers can start a session any time; protection relies on attendee caps and two-officer review; no aggregate Rep issuance-rate limit |

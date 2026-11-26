@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { useSignMessage, getIdentityToken } from '@privy-io/react-auth';
+import { useSignTypedData, getIdentityToken } from '@privy-io/react-auth';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -13,7 +13,8 @@ import { useEmbeddedAddress } from '@/hooks/useProfile';
 import { CheckInResponse, VaultToken } from '@/types';
 import { QrIcon, CheckIcon, ClockIcon, CloseIcon, type IconProps } from '@/components/ui/icons';
 import { TOKEN_COLORS, colorNameForTopic, inkOn } from '@/lib/tokenArt';
-import { CLUB_NAME } from '@/lib/constants';
+import { CLUB_NAME, CHAIN, CONTRACT_ADDRESS } from '@/lib/constants';
+import { checkInTypedData } from '@/lib/typedData';
 
 // QrScanner accesses browser APIs — load client-side only
 const QrScanner = dynamic(() => import('./QrScanner'), { ssr: false });
@@ -104,7 +105,7 @@ interface CheckInFlowProps {
 }
 
 export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
-  const { signMessage } = useSignMessage();
+  const { signTypedData } = useSignTypedData();
 
   const [step, setStep] = useState<CheckInStep>('scan');
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -140,7 +141,7 @@ export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
         throw new Error('Failed to get authentication token. Please sign out and try again.');
       }
 
-      // 3. Decode QR to get sessionId (for the message to sign)
+      // 3. Decode QR to get sessionId (for the data to sign)
       // Decode QR payload and validate sessionId format (numeric string, as stored on-chain)
       let sessionId: string;
       try {
@@ -157,10 +158,9 @@ export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
       // 4. Sign the check-in message
       setStep('signing');
       const signedAt = Date.now();
-      const message = `I am checking into session ${sessionId} as ${address} at ${signedAt}`;
 
-      const { signature } = await signMessage(
-        { message },
+      const { signature } = await signTypedData(
+        checkInTypedData(CHAIN.id, CONTRACT_ADDRESS, { sessionId, member: address, signedAt }),
         {
           address,
           uiOptions: {
