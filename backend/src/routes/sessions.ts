@@ -74,10 +74,11 @@ router.post(
   },
 );
 
-// GET /api/v1/sessions/:sessionId — get session details
+// GET /api/v1/sessions/:sessionId — get session details (admin only)
 router.get(
   '/:sessionId',
   authMiddleware,
+  adminMiddleware,
   async (req: Request, res: Response): Promise<void> => {
     const { sessionId } = req.params;
 

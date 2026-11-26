@@ -2,8 +2,21 @@ import { randomUUID } from 'node:crypto';
 import { verifyMessage } from 'viem';
 import { adminAccount } from '../lib/contract';
 import { QREnvelope, QRPayload } from '../types';
+import logger from '../lib/logger';
 
-const QR_TTL_MS = parseInt(process.env.QR_TTL_MS ?? '600000');
+// Owner decision (#72): one QR image is valid for at most 5 minutes.
+export const MAX_QR_TTL_MS = 300_000;
+
+/** QR_TTL_MS may shorten the validity window but never lengthen it. */
+export function resolveQrTtlMs(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return MAX_QR_TTL_MS;
+  const parsed = Number(raw);
+  if (Number.isInteger(parsed) && parsed > 0 && parsed <= MAX_QR_TTL_MS) return parsed;
+  logger.warn({ msg: 'QR_TTL_MS is invalid or above the maximum, using the maximum', value: raw, maxMs: MAX_QR_TTL_MS });
+  return MAX_QR_TTL_MS;
+}
+
+const QR_TTL_MS = resolveQrTtlMs(process.env.QR_TTL_MS);
 
 export async function generateQR(sessionId: string): Promise<string> {
   const issuedAt = Date.now();

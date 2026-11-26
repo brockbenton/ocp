@@ -11,6 +11,10 @@ import QRCode from 'react-qr-code';
 import { getSession, getSessionQR } from '@/lib/api/admin';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { requireIdentityToken, ApiRequestError } from '@/lib/api/client';
+import { qrTiming, REFRESH_LEAD_MS } from '@/lib/qrTiming';
+
+// How soon to try again after a failed fetch.
+const RETRY_MS = 5_000;
 
 export default function AdminSessionQRPage() {
   const { ready, authenticated } = usePrivy();
@@ -18,7 +22,7 @@ export default function AdminSessionQRPage() {
   const params = useParams<{ sessionId: string }>();
   const sessionId = params.sessionId;
 
-  const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (ready && !authenticated) {
@@ -37,8 +41,9 @@ export default function AdminSessionQRPage() {
 
   const {
     data: qrPayload,
-    isLoading: loadingQR,
+    dataUpdatedAt,
     error: qrError,
+    errorUpdatedAt,
     refetch,
   } = useQuery({
     queryKey: queryKeys.sessionQR(sessionId),
@@ -48,41 +53,33 @@ export default function AdminSessionQRPage() {
     },
     enabled: authenticated && !!sessionId,
     staleTime: Infinity,
-    retry: (_n, err) => !(err instanceof ApiRequestError && err.status === 409),
+    // Retries are scheduled below, so a failing refresh keeps being retried.
+    retry: false,
   });
 
-  // Schedule auto-refetch 90s before QR expires
+  const timing = qrPayload ? qrTiming(qrPayload, dataUpdatedAt) : null;
+  const refreshAt = timing?.refreshAt;
+  const isClosed = qrError instanceof ApiRequestError && qrError.status === 409;
+
+  // Fetch the next QR while the current one is still valid; retry soon after a failure.
   useEffect(() => {
-    if (!qrPayload) return;
-    let expiresAt: number;
-    try {
-      ({ payload: { expiresAt } } = JSON.parse(atob(qrPayload)) as {
-        payload: { expiresAt: number };
-      });
-    } catch {
-      return;
-    }
-    const delay = Math.max(0, expiresAt - 90_000 - Date.now());
+    if (isClosed) return;
+    let delay: number;
+    if (qrError) delay = RETRY_MS;
+    else if (refreshAt !== undefined) delay = Math.max(0, refreshAt - Date.now());
+    else return;
     const timer = setTimeout(() => void refetch(), delay);
     return () => clearTimeout(timer);
-  }, [qrPayload, refetch]);
+  }, [isClosed, qrError, errorUpdatedAt, refreshAt, refetch]);
 
-  // Live countdown
+  // Drives the countdown and hides the QR once it expires.
   useEffect(() => {
-    if (!qrPayload) return;
-    let expiresAt: number;
-    try {
-      ({ payload: { expiresAt } } = JSON.parse(atob(qrPayload)) as {
-        payload: { expiresAt: number };
-      });
-    } catch {
-      return;
-    }
-    const tick = () => setSecondsLeft(Math.max(0, Math.floor((expiresAt - Date.now()) / 1000)));
-    tick();
-    const interval = setInterval(tick, 1000);
+    const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [qrPayload]);
+  }, []);
+
+  const msLeft = timing ? timing.expiresAt - Math.max(now, dataUpdatedAt) : 0;
+  const showQR = !isClosed && msLeft > 0;
 
   if (!ready || !authenticated) {
     return (
@@ -129,18 +126,19 @@ export default function AdminSessionQRPage() {
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-center px-6 py-10 space-y-6">
-        {loadingQR ? (
-          <div className="w-10 h-10 border-4 border-green border-t-transparent rounded-full animate-spin" />
-        ) : qrError ? (
-          <QRErrorState error={qrError} onRetry={() => void refetch()} />
-        ) : qrPayload ? (
+        {showQR && qrPayload ? (
           <>
             <div className="p-5 bg-white border-2 border-line rounded-2xl">
               <QRCode value={qrPayload} size={320} />
             </div>
 
             <div className="text-center space-y-2">
-              <CountdownLine secondsLeft={secondsLeft} />
+              <CountdownLine secondsLeft={Math.floor(msLeft / 1000)} />
+              {qrError && (
+                <p role="alert" className="text-sm text-status-warn font-medium">
+                  Couldn&apos;t refresh the code. Retrying&hellip;
+                </p>
+              )}
               <button
                 onClick={() => void refetch()}
                 className="text-xs text-content-muted hover:text-content-secondary underline"
@@ -149,7 +147,16 @@ export default function AdminSessionQRPage() {
               </button>
             </div>
           </>
-        ) : null}
+        ) : qrError ? (
+          <QRErrorState isClosed={isClosed} onRetry={() => void refetch()} />
+        ) : (
+          // Loading, or the last code expired and its replacement is not here yet.
+          <div
+            role="status"
+            aria-label="Loading QR code"
+            className="w-10 h-10 border-4 border-green border-t-transparent rounded-full animate-spin"
+          />
+        )}
       </main>
     </div>
   );
@@ -171,42 +178,33 @@ function formatCountdown(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function CountdownLine({ secondsLeft }: { secondsLeft: number | null }) {
-  if (secondsLeft === null) return null;
-  if (secondsLeft > 90) {
+function CountdownLine({ secondsLeft }: { secondsLeft: number }) {
+  if (secondsLeft > REFRESH_LEAD_MS / 1000) {
     return (
       <p className="text-sm text-content-secondary">
-        Auto-refreshes in {formatCountdown(secondsLeft)}
+        Valid for {formatCountdown(secondsLeft)}
       </p>
     );
   }
-  if (secondsLeft > 0) {
-    return (
-      <p className="text-sm text-status-warn font-medium">Refreshing soon&hellip;</p>
-    );
-  }
   return (
-    <p className="text-sm text-status-neg font-medium">QR expired. Refreshing&hellip;</p>
+    <p className="text-sm text-status-warn font-medium">
+      Expires in {formatCountdown(secondsLeft)}
+    </p>
   );
 }
 
 interface QRErrorStateProps {
-  error: unknown;
+  isClosed: boolean;
   onRetry: () => void;
 }
 
-function QRErrorState({ error, onRetry }: QRErrorStateProps) {
-  const isClosed =
-    error instanceof ApiRequestError &&
-    error.status === 409 &&
-    error.code === 'CONFLICT';
-
+function QRErrorState({ isClosed, onRetry }: QRErrorStateProps) {
   return (
     <div className="text-center space-y-3">
       <p className="text-content font-medium">
         {isClosed
           ? 'This session is closed or not yet confirmed on-chain.'
-          : 'Failed to load QR code.'}
+          : 'Failed to load QR code. Retrying\u2026'}
       </p>
       {!isClosed && (
         <button onClick={onRetry} className="text-cyan text-sm hover:underline">

@@ -58,6 +58,9 @@ backend/
 ### Auth
 - Member auth: Privy JWT in `Authorization: Bearer <token>` header, verified server-side
 - Admin auth: Privy JWT + on-chain `ADMIN_ROLE` check; fails closed
+- Every session, QR, export and PII route uses `adminMiddleware`, which reads the chain on
+  each request (no role cache). `test/officer.access.test.ts` fails if a new session or
+  admin route is not covered.
 - `req.user` is typed as `{ privyUserId: string, walletAddress: string }`
 
 ## QR Payload Spec
@@ -111,7 +114,7 @@ CORS_ORIGINS               # Comma-separated frontend origins allowed by CORS
 
 # Optional
 CHAIN_ID                   # 8453 (Base Mainnet) or 84532 (Base Sepolia). Default: 84532
-QR_TTL_MS                  # Default: 600000 (10 min)
+QR_TTL_MS                  # Default and maximum: 300000 (5 min)
 PORT                       # Default: 3001
 NODE_ENV                   # "production" switches to JSON logs at info level
 PUBLIC_API_URL             # Base URL for art/badge links. Default: empty (relative URLs)
