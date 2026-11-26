@@ -4,7 +4,7 @@ Onchain Club Protocol (OCP): members check in to club meetings with signed QR co
 
 ## Stack
 - `smart-contract/` — Solidity ^0.8.24, Foundry, OpenZeppelin v5. Use `~/.foundry/bin/forge` (`/usr/bin/forge` is an unrelated binary).
-- `backend/` — Node.js, Express, TypeScript, PostgreSQL + Prisma, BullMQ relay, viem.
+- `backend/` — Node.js, Express, TypeScript, PostgreSQL + Prisma, relay and indexer, viem.
 - `frontend/` — Next.js 14 App Router, TypeScript, Tailwind, Privy, viem, TanStack Query.
 - Chain: Base Sepolia → Base Mainnet.
 
@@ -19,7 +19,7 @@ Each package has a `CLAUDE.md` with its conventions and FORBIDDEN list — treat
 
 ## Hard rules to flag
 - Contracts: no upgradeable proxies, no `tx.origin`, no `selfdestruct`, no `block.timestamp` in access control, governance parameters must have on-chain bounds, soulbound tokens and Rep must not be transferable.
-- Backend: private keys only from env vars; never call contracts directly from a route handler (go through the relay queue); never return PII on unauthenticated endpoints; admin/officer checks read the chain and fail closed.
+- Backend: private keys only from env vars; never send transactions from a route handler (queue for the relay); never return PII on unauthenticated endpoints; admin/officer checks read the chain and fail closed.
 - Frontend: no secrets, no hardcoded contract addresses or API URLs (`NEXT_PUBLIC_*` env vars), no `useEffect` data fetching (use TanStack Query).
 - Never enable Privy delegated actions / session signers.
 
@@ -30,6 +30,7 @@ Review Phase 5 work against `MASTER_PLAN.md` (Phase 5), `SECURITY.md` and `smart
 ```bash
 cd smart-contract && ~/.foundry/bin/forge test
 cd backend && npm run typecheck && npm test      # tests need a local Postgres
+cd backend && npm run test:e2e                   # also needs Foundry
 cd frontend && npm test && npm run typecheck && npm run lint && npm run build
 ```
 

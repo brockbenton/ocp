@@ -21,15 +21,19 @@ vi.mock('@privy-io/server-auth', () => ({
     }
   },
 }));
-vi.mock('../src/services/onchain.service', () => ({
+vi.mock('../src/services/onchain.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/onchain.service')>()),
   hasAdminRoleOnChain: async () => {
     chain.reads += 1;
     if (chain.rpcDown) throw new Error('RPC unavailable');
     return chain.isOfficer;
   },
   tokenBalanceOnChain: async () => 0n,
+  getSignOffOnChain: async () => ({ status: 'NONE' }),
+  getRepSnapshot: async () => {
+    throw new Error('no chain in unit tests');
+  },
 }));
-vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async () => ({ id: 'test' }) } }));
 
 import { createApp } from '../src/app';
 import adminRouter from '../src/routes/admin';
@@ -78,8 +82,10 @@ describe('officer access is read from the chain on every sensitive request', () 
       expect.arrayContaining([
         'get /api/v1/sessions/:sessionId/qr',
         'get /api/v1/sessions/:sessionId',
-        'post /api/v1/sessions',
-        'post /api/v1/sessions/:sessionId/close',
+        'post /api/v1/sessions/:sessionId/sync',
+        'get /api/v1/admin/review',
+        'get /api/v1/admin/sessions/:sessionId/close-list',
+        'post /api/v1/admin/metadata/preview',
         'get /api/v1/admin/members',
         'get /api/v1/admin/sessions/:sessionId/attendees',
         'get /api/v1/admin/export/members',

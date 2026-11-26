@@ -3,6 +3,7 @@ import path from 'path';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
 import { APP_NAME } from '../lib/brand';
+import { semesterFor } from '../lib/session';
 
 /**
  * Metadata / IPFS pipeline. Per resolved Open Question #2, token art is one
@@ -203,4 +204,43 @@ export async function publishSemesterMetadata(): Promise<PublishResult> {
   });
 
   return { staged: items.length, dryRun, baseCid, stagingDir: STAGING_DIR, items };
+}
+
+/**
+ * The metadata for a meeting an officer is about to create, pinned when Pinata is
+ * configured so its CID can go into `createSession`. Without a pinning key the CID is
+ * null and the token uses the registry's base metadata.
+ */
+export async function previewSessionMetadata(input: {
+  sessionId: string;
+  name: string;
+  date: string;
+}): Promise<{ metadata: TokenMetadata; cid: string | null }> {
+  const date = new Date(input.date);
+  const semester = semesterFor(date);
+  const earlier = await prisma.session.count({
+    where: { semester, onchainStatus: 'CONFIRMED', date: { lt: date } },
+  });
+  const metadata = buildSessionMetadata(
+    { sessionIdOnchain: input.sessionId, name: input.name, date, semester },
+    earlier + 1,
+  );
+  const jwt = process.env.PINATA_JWT;
+  if (!jwt) return { metadata, cid: null };
+
+  const form = new FormData();
+  form.append(
+    'file',
+    new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' }),
+    `${input.sessionId}.json`,
+  );
+  const res = await fetch(PINATA_PIN_FILE_URL, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${jwt}` },
+    body: form,
+  });
+  if (!res.ok) throw new Error(`Pinata pin failed (${res.status})`);
+  const body = (await res.json()) as { IpfsHash?: string };
+  if (!body.IpfsHash) throw new Error('Pinata response missing IpfsHash');
+  return { metadata, cid: body.IpfsHash };
 }

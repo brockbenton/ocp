@@ -23,6 +23,7 @@ model Member {
   @@map("members")
 }
 
+/// Rows mirror sessions on a registry. The chain is the authority; the indexer keeps them current.
 model Session {
   id               String    @id @default(cuid())
   /// Lowercase registry address. Empty only on rows awaiting adoption at startup.
@@ -38,6 +39,21 @@ model Session {
   closedAt         DateTime? @map("closed_at")
   createdAt        DateTime  @default(now()) @map("created_at")
 
+  // Phase 5 registry only; null or NONE on legacy sessions.
+  maxAttendees  Int?      @map("max_attendees")
+  metadataCid   String?   @map("metadata_cid")
+  repStatus     RepStatus @default(NONE) @map("rep_status")
+  attendeesHash String?   @map("attendees_hash")
+  /// The closed attendee list exactly as emitted on-chain.
+  attendees     String[]  @default([])
+  closedBy      String?   @map("closed_by")
+  confirmedBy   String?   @map("confirmed_by")
+  recognizedAt  DateTime? @map("recognized_at")
+  creditCursor  Int       @default(0) @map("credit_cursor")
+  /// Set once officers have been alerted about anomaly flags / a long-open session.
+  alertedAt     DateTime? @map("alerted_at")
+  openWarnedAt  DateTime? @map("open_warned_at")
+
   checkIns CheckIn[]
 
   @@unique([registryAddress, sessionIdOnchain])
@@ -46,32 +62,173 @@ model Session {
 
 enum TxStatus {
   PENDING
+  SUBMITTED
   CONFIRMED
   FAILED
 }
 
+enum RepStatus {
+  NONE
+  PENDING
+  CONFIRMED
+  REJECTED
+  CREDITED
+}
+
 model CheckIn {
-  id          String   @id @default(cuid())
-  memberId    String   @map("member_id")
-  sessionId   String   @map("session_id")
-  nonce       String
-  txHash      String?  @map("tx_hash")
-  mintStatus  TxStatus @default(PENDING) @map("mint_status")
-  checkedInAt DateTime @default(now()) @map("checked_in_at")
+  id            String   @id @default(cuid())
+  memberId      String   @map("member_id")
+  sessionId     String   @map("session_id")
+  nonce         String
+  txHash        String?  @map("tx_hash")
+  mintStatus    TxStatus @default(PENDING) @map("mint_status")
+  failureReason String?  @map("failure_reason")
+  attempts      Int      @default(0)
+  relayTxId     String?  @map("relay_tx_id")
+  checkedInAt   DateTime @default(now()) @map("checked_in_at")
 
   member  Member  @relation(fields: [memberId], references: [id])
   session Session @relation(fields: [sessionId], references: [id])
 
   @@unique([memberId, sessionId])
+  @@index([mintStatus])
   @@map("check_ins")
 }
 
-model AdminRole {
-  id            String    @id @default(cuid())
-  walletAddress String    @map("wallet_address")
-  grantedBy     String    @map("granted_by")
-  grantedAt     DateTime  @default(now()) @map("granted_at")
-  revokedAt     DateTime? @map("revoked_at")
+/// One nonce of the relay wallet. `hashes` holds every broadcast for it, oldest first.
+model RelayTx {
+  id                   String      @id @default(cuid())
+  sender               String
+  nonce                Int
+  /// `sender:nonce` while the transaction is unresolved, so a nonce is never used twice.
+  activeKey            String?     @unique @map("active_key")
+  kind                 RelayKind
+  payload              Json
+  hashes               String[]    @default([])
+  maxFeePerGas         String      @map("max_fee_per_gas")
+  maxPriorityFeePerGas String      @map("max_priority_fee_per_gas")
+  gas                  String
+  cancelled            Boolean     @default(false)
+  status               RelayStatus @default(PREPARED)
+  error                String?
+  lastSentAt           DateTime?   @map("last_sent_at")
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
 
-  @@map("admin_roles")
+  @@index([status])
+  @@map("relay_txs")
+}
+
+enum RelayKind {
+  MINT_BATCH
+  CREDIT_PAGE
+  VOTE
+}
+
+enum RelayStatus {
+  PREPARED
+  SUBMITTED
+  CONFIRMED
+  REVERTED
+  CANCELLED
+  DROPPED
+}
+
+model Proposal {
+  proposalId  String    @id @map("proposal_id")
+  governor    String
+  proposer    String
+  targets     String[]
+  /// Decimal strings (wei).
+  values      String[]
+  calldatas   String[]
+  description String
+  voteStart   DateTime  @map("vote_start")
+  voteEnd     DateTime  @map("vote_end")
+  operationId String    @map("operation_id")
+  createdAt   DateTime  @map("created_at")
+  txHash      String    @map("tx_hash")
+  queuedEta   DateTime? @map("queued_eta")
+  executedAt  DateTime? @map("executed_at")
+  canceledAt  DateTime? @map("canceled_at")
+
+  @@index([operationId])
+  @@map("proposals")
+}
+
+/// A vote seen on-chain, or a signed vote waiting for the relay.
+model Vote {
+  id            String   @id @default(cuid())
+  proposalId    String   @map("proposal_id")
+  voter         String
+  support       Int
+  weight        String?
+  /// Present for relayed votes, so the voter or an officer can submit it themselves.
+  signature     String?
+  status        TxStatus @default(PENDING)
+  failureReason String?  @map("failure_reason")
+  attempts      Int      @default(0)
+  relayTxId     String?  @map("relay_tx_id")
+  txHash        String?  @map("tx_hash")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([proposalId, voter])
+  @@index([status])
+  @@map("votes")
+}
+
+/// Explicit Rep changes. Current power decays without events, so never sum these for a balance.
+model RepEvent {
+  id           String       @id @default(cuid())
+  type         RepEventType
+  account      String
+  /// 18-decimal strings. `nominal` is the award before decay.
+  amount       String
+  nominal      String?
+  recognizedAt DateTime?    @map("recognized_at")
+  reason       String?
+  blockNumber  BigInt       @map("block_number")
+  logIndex     Int          @map("log_index")
+  txHash       String       @map("tx_hash")
+  occurredAt   DateTime     @map("occurred_at")
+
+  @@unique([txHash, logIndex])
+  @@index([account])
+  @@map("rep_events")
+}
+
+enum RepEventType {
+  CREDIT
+  SKIPPED
+  GRANT
+  REVOKE
+  UNBLOCK
+  IMPORT
+}
+
+model TokenEvent {
+  id               String   @id @default(cuid())
+  registryAddress  String   @map("registry_address")
+  sessionIdOnchain String   @map("session_id_onchain")
+  account          String
+  minted           Boolean
+  skipReason       Int?     @map("skip_reason")
+  blockNumber      BigInt   @map("block_number")
+  logIndex         Int      @map("log_index")
+  txHash           String   @map("tx_hash")
+  occurredAt       DateTime @map("occurred_at")
+
+  @@unique([txHash, logIndex])
+  @@index([account])
+  @@index([registryAddress, sessionIdOnchain])
+  @@map("token_events")
+}
+
+/// One cursor per deployment (registry address): the last fully indexed block.
+model IndexerCursor {
+  id          String   @id
+  blockNumber BigInt   @map("block_number")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("indexer_cursors")
 }

@@ -11,6 +11,7 @@ import {
   buildMemberVault,
   buildPersonalStats,
 } from '../services/stats.service';
+import { buildMemberRep, getRepSnapshotCached } from '../services/rep.service';
 import { findOrCreateMember } from '../services/identity.service';
 
 const router = Router();
@@ -92,19 +93,51 @@ router.patch(
 );
 
 // ── GET /api/v1/members ───────────────────────────────────────────────────
-// Public directory — unauthenticated, so linkedAccount (email/social PII) is
-// stripped here; only the auth-gated /admin/members endpoint returns it.
+// Public directory and leaderboard — unauthenticated, so linkedAccount (email/social
+// PII) is stripped here; only the auth-gated /admin/members endpoint returns it.
+// Members are ranked by current decayed Rep, read for everyone at one block, with
+// lifetime attendance alongside.
 
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   const { members, totalSessions, currentSemester } = await buildMemberStats(false);
+  const snapshot = await getRepSnapshotCached(members.map((m) => m.walletAddress));
+  const repOf = (wallet: string) => snapshot?.balances.get(wallet) ?? null;
 
   // joinedAt is account metadata rather than attendance, so it stays behind the
   // admin gate alongside linkedAccount and the internal id.
-  const publicMembers = members.map(
-    ({ linkedAccount: _linkedAccount, id: _id, joinedAt: _joinedAt, ...rest }) => rest,
-  );
+  const publicMembers = members
+    .map(({ linkedAccount: _linkedAccount, id: _id, joinedAt: _joinedAt, ...rest }) => ({
+      ...rest,
+      rep: repOf(rest.walletAddress),
+    }))
+    // A stable sort keeps the attendance order between members with equal Rep.
+    .sort((a, b) => {
+      const difference = BigInt(b.rep ?? 0) - BigInt(a.rep ?? 0);
+      return difference > 0n ? 1 : difference < 0n ? -1 : 0;
+    });
 
-  res.json({ data: { members: publicMembers, totalSessions, currentSemester } });
+  res.json({
+    data: {
+      members: publicMembers,
+      totalSessions,
+      currentSemester,
+      totalRep: snapshot?.totalSupply ?? null,
+      repAsOf: snapshot ? new Date(snapshot.asOf * 1000).toISOString() : null,
+    },
+  });
+});
+
+// ── GET /api/v1/members/:address/rep ────────────────────────────────────────
+// Current voting power at a stated time, awards still on the way, and history.
+
+router.get('/:address/rep', async (req: Request, res: Response): Promise<void> => {
+  const { address } = req.params;
+  if (!isAddress(address)) {
+    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid wallet address' } });
+    return;
+  }
+
+  res.json({ data: await buildMemberRep(address) });
 });
 
 // ── GET /api/v1/members/:address/tokens ─────────────────────────────────────

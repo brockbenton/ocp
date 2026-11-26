@@ -45,7 +45,7 @@ The POAP protocol requires manual approval per event from the POAP team, ties ad
 - **Node.js** + **Express** + **TypeScript**
 - **PostgreSQL** + **Prisma ORM**
 - **Alchemy** — Base RPC endpoint (via viem)
-- **Bull** (Redis queue) — async on-chain write jobs
+- **Database-backed relay** — one sender with its queue and nonces in PostgreSQL (replaced Bull/Redis in Phase 5)
 - Admin-signed QR payload generation + verification
 - Gasless transaction relay (backend wallet sponsors mints)
 
@@ -497,12 +497,19 @@ Implemented and tested; **not deployed, not audited**.
 - Half-life, threshold and floor remain provisional; the collusion threat model needs review (#50).
 
 **5b — Backend**
-- [ ] Relay sender (nonce manager, replacement, SUBMITTED), `mintBatch` coalescing
-- [ ] EIP-712 QR + check-in signatures, role-less QR key, 5-min TTL with auto-refresh, live officer checks; open-session warning job (`OPEN_SESSION_WARN_HOURS`, default 6)
-- [ ] Remove `DEFAULT_ADMIN_PRIVATE_KEY` paths; officer-tx flows replace the backend's `createSession` / `closeSession`
-- [ ] Schema migration (`registryAddress`, session caps, `Proposal` / `Vote` / `RepEvent`, drop `AdminRole`) — `db-schema-reviewer`
-- [ ] Indexer for registry/Rep/Governor/Timelock events; attendee API for close; pending-review queue + anomaly flags + officer alerts; `creditSessionRep` paging after confirmation; decay-aware timestamped reads/cache refresh; vote relay endpoint (validate + simulate)
-- [ ] Remove General/Official tiers; Rep/rank/leaderboard APIs
+- [x] Relay sender (nonce manager, replacement, SUBMITTED), `mintBatch` coalescing
+- [x] EIP-712 QR + check-in signatures, role-less QR key, 5-min TTL with auto-refresh, live officer checks; open-session warning job (`OPEN_SESSION_WARN_HOURS`, default 6)
+- [x] Remove `DEFAULT_ADMIN_PRIVATE_KEY` paths; officer-tx flows replace the backend's `createSession` / `closeSession`
+- [x] Schema migration (`registryAddress`, session caps, `Proposal` / `Vote` / `RepEvent`, drop `AdminRole`) — `db-schema-reviewer`
+- [x] Indexer for registry/Rep/Governor/Timelock events; attendee API for close; pending-review queue + anomaly flags + officer alerts; `creditSessionRep` paging after confirmation; decay-aware timestamped reads/cache refresh; vote relay endpoint (validate + simulate)
+- [x] Remove General/Official tiers; Rep/rank/leaderboard APIs
+
+#### 5b notes
+
+- The relay keeps its queue and nonces in PostgreSQL, so BullMQ and Redis are gone. Run one backend instance.
+- Officer alerts go to the dashboard, the log and an optional Slack/Discord webhook (`ALERT_WEBHOOK_URL`). There is no email.
+- Founding Member remains an admin-granted badge; only the attendance tiers were retired. Remove it too if "no other tiers" is meant to cover it.
+- Covered end to end on a local chain by `backend/test/e2e`.
 
 **5c — Frontend**
 - [ ] Officer meeting flow (organizer sets `maxAttendees`, create tx, auto-refreshing 5-min QR, close tx with attendee list, second-officer review queue with confirm/reject, pause/unpause, ETH balance); open-sessions list with 6 h warning; member pending-approval / approved-awaiting-credit states; current decayed influence + separate lifetime attendance

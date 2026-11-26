@@ -1,7 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 
-vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async () => ({ id: 'test' }) } }));
 
 import { createApp, parseCorsOrigins } from '../src/app';
 
@@ -29,7 +28,7 @@ describe('security headers', () => {
     expect(res.headers['x-powered-by']).toBeUndefined();
   });
 
-  it.each(['/api/v1/art/Spring%202026', '/api/v1/badge/official'])(
+  it.each(['/api/v1/art/Spring%202026', '/api/v1/badge/founding'])(
     'serves %s as an embeddable, non-sniffable SVG',
     async (path) => {
       const res = await request(app).get(path);

@@ -50,16 +50,17 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 
 ## 2. Keys and roles
 
-### Live today
+### Backend keys (Phase 5 code; deploy with the Phase 5 contracts)
 
 | Key (backend env) | On-chain role | Used for | If leaked |
 |---|---|---|---|
-| `RELAY_PRIVATE_KEY` | `RELAY_ROLE` | `mint` from the check-in queue | Mint attendance tokens into any **open** session, to any address ⚠️ |
-| `ADMIN_SIGNER_PRIVATE_KEY` | `ADMIN_ROLE` | `createSession` / `closeSession` **and** signing QR payloads | Create sessions + forge valid QR codes; with the relay key, fabricate attendance ⚠️ |
+| `RELAY_PRIVATE_KEY` | `RELAY_ROLE` only | Mints attendance tokens; pays gas for Rep credit pages and members' signed votes | Mint tokens into **open** sessions up to each cap; drain the relay's gas balance. Cannot create Rep or forge votes ⚠️ |
+| `QR_SIGNER_PRIVATE_KEY` | **none** | Signs QR payloads. One per environment | Forge QR codes for open sessions; useful only with the relay, still bounded by caps and two-officer review |
 
 - ✅ All keys live only in backend env vars — never shipped to the frontend.
-- ✅ The backend no longer reads `DEFAULT_ADMIN_PRIVATE_KEY`: no role-change route, no `setBaseCid` path, no grant script (#82, #55). The `DEFAULT_ADMIN_ROLE` holder applies role changes and the base CID from their own wallet (`smart-contract/DEPLOY.md`).
-- ⚠️ Deployment state is unverified: delete the variable from every environment where it is set, and record which wallet holds `DEFAULT_ADMIN_ROLE` on-chain. Removing the code does not revoke that role (#82, #55).
+- ✅ The server refuses to start if the QR key holds any role, or the relay holds anything beyond `RELAY_ROLE` (`lib/keyChecks.ts`) (#55).
+- ✅ The backend reads no admin or officer key: `ADMIN_SIGNER_PRIVATE_KEY` and `DEFAULT_ADMIN_PRIVATE_KEY` are gone (#55, #82).
+- ⚠️ Deployments still running the earlier backend use `ADMIN_SIGNER_PRIVATE_KEY` (`ADMIN_ROLE` on the legacy registry). At cutover, delete it and any `DEFAULT_ADMIN_PRIVATE_KEY` from every environment, freeze the legacy registry and record the transaction hashes (#55, #82).
 
 ### v1 target (Phase 5)
 
@@ -100,12 +101,12 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 | QR expiry | ✅ | Each QR is valid for 5 minutes (`QR_TTL_MS`, which can only shorten it). The projector page fetches a replacement 90 s before expiry, keeps the current code up while retrying, and never shows an expired one (#72) |
 | Member signature bound to their wallet | ✅ | Member signs EIP-712 `CheckIn{sessionId, member, signedAt}`; the recovered address must equal the authenticated embedded wallet |
 | Stale-signature window | ✅ | Member signature must be ≤ 60 s old and ≤ 10 s in the future |
-| One check-in per member per session | ✅ | DB `@@unique([memberId, sessionId])` **and** contract `AlreadyCheckedIn` |
+| One check-in per member per session | ✅ | DB `@@unique([memberId, sessionId])` **and** the contract's one-token-per-session rule |
 | Session must be open and confirmed on-chain | ✅ | Closed or unconfirmed sessions rejected |
 | Per-user rate limit | ✅ | 30 check-in attempts/min keyed by Privy user, not IP (a whole room shares one wifi IP) |
 | QR + check-in signatures bound to chain + contract | ✅ | Both use the EIP-712 domain `{name: "OCP Check-In", version: "1", chainId, verifyingContract: registry}`, so neither replays across chains or registries. Sessions are unique on `(registryAddress, sessionIdOnchain)` and only looked up that way (#56) |
-| Officer-set max attendance per session | 🟡 | Officer sets `maxAttendees` when starting each meeting (pre-filled from recent attendance); enforced on-chain for minting (#50) |
-| Open-session warning | 🟡 | Officer alert + organizer-dashboard list for sessions open longer than `OPEN_SESSION_WARN_HOURS` (default 6, off-chain config). A nudge only — sessions never auto-close |
+| Officer-set max attendance per session | 🔧 | Set at `createSession` (the UI pre-fills a suggestion); enforced on-chain for minting and refused early by the API (#50) |
+| Open-session warning | 🔧 | Officers are alerted once, and the dashboard lists sessions open longer than `OPEN_SESSION_WARN_HOURS` (default 6). A nudge only: sessions never auto-close |
 | No time limits on creating sessions / QR codes | 🟡 decided | Officers can start a session any time; protection relies on attendee caps and two-officer review; no aggregate Rep issuance-rate limit |
 
 > ⚠️ A photo of the QR shared in a group chat works remotely until it expires (5 min once #72 ships). Mitigated by `maxAttendees`, two-officer attendee review and anomaly alerts. There is no club-wide weekly Rep budget; decay does not verify presence.
@@ -129,7 +130,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Relay can't create Rep | 🔧 | A leaked relay key can only mint attendance tokens, which carry no Rep |
 | Mint pause | 🔧 | Any officer can pause minting; auto-expires after 14 days; each officer may pause once per 30 days; unpause by 2 officers or the Timelock (#52) |
 | Governance Rep revoke | 🔧 | Timelock removes remaining decayed power and blocks new credit until cleared; historical snapshots stay unchanged. Grants decay from execution and record a reason (#68) |
-| Anomaly alerts | 🟡 | Backend flags sessions whose attendance far exceeds normal; review queue for the confirming officer |
+| Anomaly alerts | 🔧 | The review queue flags unusually high attendance, many first-time, new or unknown wallets, lists that differ from recorded check-ins, and repeated sessions; officers are alerted (dashboard, log, optional webhook). Flags are advice, not enforcement. Attendee lists are public at `/api/v1/club/sessions` (#50) |
 | Legacy Rep import is computed on-chain | 🔧 | Derive nominal Rep on-chain from closed sessions in the frozen legacy registry, at most 10× legacy ATs. All import batches share a deployment-fixed recognition time, then decay. No proposals until finalized (#51) |
 
 > ⚠️ **Changed threat model — review before deployment:** two colluding officers can approve repeated fabricated sessions, creating fresh Rep with **no weekly issuance-rate bound**. Decay does not prevent capture before governance removes them. Governance revoke/removal depend on honest governance still having control. Mint pause does not block existing Pending confirmations; two colluders can unpause each other. Do not carry forward the old "up to the weekly budget" guarantee (#50).
@@ -163,12 +164,12 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Feature | Status | Details |
 |---|---|---|
 | Gasless for members | ✅ | Backend wallet pays all mint gas |
-| Async mint queue with retries | ✅ | BullMQ, 3 attempts, exponential backoff |
-| Nonce-collision avoidance | ✅ | Single worker, `concurrency: 1` |
+| Database-backed relay queue | 🔧 | Work and nonces are rows in PostgreSQL; check-ins are coalesced into `mintBatch`; bounded retries end in `FAILED` with a reason (#59) |
+| Single relay sender | 🔧 | One backend instance; a unique key per nonce prevents double use |
 | Gasless voting | 🟡 | Members sign `castVoteBySig`; relay submits; **anyone** can submit a signed vote. Relay cannot forge it, but can censor its own submissions; independent verification and a funded fallback are needed (#58) |
-| Censorship check from the frontend | 🟡 | Frontend reads `hasVoted` over public RPC, not via the backend, and warns if a signed vote hasn't landed (#58) |
-| One tx per relayed vote (no Multicall) | 🟡 | One bad vote can't revert others (#59) |
-| Nonce manager with stuck-tx replacement | 🟡 | Single sender, gas-bump / replace; `SUBMITTED` state before `CONFIRMED` after N confirmations (#59) |
+| Censorship check from the frontend | 🟡 | Frontend reads `hasVoted` over public RPC, not via the backend, and warns if a signed vote hasn't landed. The API returns the signed vote so anyone can submit it (#58) |
+| One tx per relayed vote (no Multicall) | 🔧 | One bad vote can't revert others. The API accepts a vote only from its signer, with voting power, after simulating it; rate limited (#59) |
+| Nonce manager with stuck-tx replacement | 🔧 | Fee bump or cancel of the oldest stuck transaction, capped by `RELAY_MAX_FEE_GWEI`; `SUBMITTED` until `CONFIRMATIONS` blocks deep. Tested against a local node (#59) |
 | Relay key rotation runbook | 🟡 | Pause → governance rotates `RELAY_ROLE` (#52) |
 | Sessions stay mintable while open | ⚠️ / 📝 | A leaked relay key can mint tokens into open sessions; once v1 ships those carry no Rep (cosmetic) |
 
@@ -181,8 +182,8 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Zod validation on request bodies | ✅ | `validate()` middleware |
 | Uniform error format, no stack traces | ✅ | Global error handler returns `{ error: { code, message } }` |
 | Async errors reach the error handler | ✅ | `express-async-errors` |
-| Admin auth checks the chain, fails closed | ✅ | `adminMiddleware` reads on-chain `ADMIN_ROLE` on every request; RPC failure → `503`, not access (`backend/src/middleware/admin.ts`) |
-| Governance-only role changes | ✅ API / 🟡 on-chain | The API has no grant or revoke route and no admin signer; regression tests hold that even with the old key configured. `GET /api/v1/admin/roles` is read-only and reconciles records against `hasRole`. On-chain enforcement through Governor + Timelock arrives with the Phase 5 contracts (#82, #55) |
+| Officer auth checks the chain, fails closed | ✅ | `adminMiddleware` reads on-chain `ADMIN_ROLE` on every request; RPC failure → `503`, not access (`backend/src/middleware/admin.ts`) |
+| Governance-only role changes | 🔧 | The API has no route or key that changes roles; officers are read live from the registry. On-chain, only the Timelock can grant or revoke (#82, #55) |
 | Live officer checks stay live | ✅ | The authoritative officer source is the registry's on-chain `hasRole(ADMIN_ROLE)`, read on every session, QR, export and PII request with no cache, so a revoked officer loses access on their next request. RPC failure fails closed (#69) |
 | CORS | ✅ | Exact-match origin allowlist from `CORS_ORIGINS` (required at startup); methods `GET, POST, PATCH, DELETE` and headers `Authorization, Content-Type` only (#80) |
 | Security headers | ✅ | `helmet` on the API: `default-src 'none'; frame-ancestors 'none'`, HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; no `X-Powered-By`. Only the public SVG art routes are cross-origin embeddable (#81) |
@@ -230,7 +231,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 |---|---|---|
 | CI: contract tests, backend build+test, frontend build+typecheck | ✅ | `.github/workflows/ci.yml` |
 | Testnet first | ✅ | Base Sepolia; mainnet only after a pilot semester + audit |
-| Relay balance monitoring | 🟡 | Alert below threshold; small hot balance, top-ups from cold wallet (#73 for per-club budgets in v2) |
+| Relay balance monitoring | 🔧 | Warns below `RELAY_MIN_BALANCE_ETH`; top-up and incident runbook in `smart-contract/DEPLOY.md` (#73 for per-club budgets in v2) |
 | Officer wallet funding | 🟡 | Small Base ETH per officer; who funds it is an open decision |
 | Audits | 🟡 | `contract-auditor` + `security-reviewer` on the 5a code; external audit before mainnet |
 

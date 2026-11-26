@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { renderSemesterBadgeSvg, renderTierBadgeSvg } from '../services/art.service';
+import { renderSemesterBadgeSvg, renderFoundingBadgeSvg } from '../services/art.service';
 
 const router = Router();
 
@@ -11,13 +11,13 @@ function sendSvg(res: Response, svg: string): void {
   res.send(svg);
 }
 
-// Public, generated SVG assets: per-semester token badge and member-tier badge.
+// Public, generated SVG assets: per-semester token badge and the founding-member badge.
 router.get('/art/:semester', (req: Request, res: Response): void => {
   sendSvg(res, renderSemesterBadgeSvg(req.params.semester));
 });
 
-router.get('/badge/:tier', (req: Request, res: Response): void => {
-  sendSvg(res, renderTierBadgeSvg(req.params.tier.toLowerCase()));
+router.get('/badge/founding', (_req: Request, res: Response): void => {
+  sendSvg(res, renderFoundingBadgeSvg());
 });
 
 export default router;

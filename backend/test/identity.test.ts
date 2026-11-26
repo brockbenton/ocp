@@ -15,11 +15,15 @@ vi.mock('@privy-io/server-auth', () => ({
     }
   },
 }));
-vi.mock('../src/services/onchain.service', () => ({
+vi.mock('../src/services/onchain.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/onchain.service')>()),
   hasAdminRoleOnChain: async () => false,
   tokenBalanceOnChain: async () => 0n,
+  getSignOffOnChain: async () => ({ status: 'NONE' }),
+  getRepSnapshot: async () => {
+    throw new Error('no chain in unit tests');
+  },
 }));
-vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async () => ({ id: 'test' }) } }));
 
 import { createApp } from '../src/app';
 import prisma from '../src/lib/prisma';

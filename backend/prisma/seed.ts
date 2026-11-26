@@ -115,7 +115,6 @@ async function main(): Promise<void> {
   await prisma.checkIn.deleteMany();
   await prisma.session.deleteMany();
   await prisma.member.deleteMany();
-  await prisma.adminRole.deleteMany();
 
   // Sessions
   const sessionByOnchainId = new Map<string, string>();
@@ -165,14 +164,6 @@ async function main(): Promise<void> {
       });
     }
   }
-
-  // Admin role for alice (so the admin endpoints are exercisable).
-  await prisma.adminRole.create({
-    data: {
-      walletAddress: '0x1111111111111111111111111111111111111111',
-      grantedBy: '0x1111111111111111111111111111111111111111',
-    },
-  });
 
   const [members, sessions, checkIns] = await Promise.all([
     prisma.member.count(),

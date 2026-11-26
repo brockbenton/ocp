@@ -1,12 +1,18 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
+import { formatUnits, isAddress } from 'viem';
+import { validate } from '../middleware/validate';
 import { authMiddleware } from '../middleware/auth';
 import { adminMiddleware } from '../middleware/admin';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
-import { listOfficers } from '../services/officers.service';
 import { buildMemberStats, buildAdminOverview } from '../services/stats.service';
 import { publishSemesterMetadata } from '../services/ipfs.service';
 import { findSessionOr404 } from '../lib/session';
+import { serializeSession } from '../lib/serialize';
+import { getAttendeeList, getReviewQueue, suggestedMaxAttendees } from '../services/meetings.service';
+import { previewSessionMetadata } from '../services/ipfs.service';
+import { getRepSnapshotCached } from '../services/rep.service';
 
 const router = Router();
 
@@ -39,21 +45,48 @@ router.get('/sessions', async (_req: Request, res: Response): Promise<void> => {
   });
 
   res.json({
-    data: sessions.map((s) => ({
-      id: s.id,
-      sessionId: s.sessionIdOnchain,
-      name: s.name,
-      date: s.date.toISOString(),
-      semester: s.semester,
-      createdBy: s.createdBy,
-      txHash: s.txHash,
-      closeTxHash: s.closeTxHash,
-      onchainStatus: s.onchainStatus,
-      closedAt: s.closedAt?.toISOString() ?? null,
-      createdAt: s.createdAt.toISOString(),
-      attendeeCount: s._count.checkIns,
-    })),
+    data: sessions.map((s) => ({ ...serializeSession(s), attendeeCount: s._count.checkIns })),
   });
+});
+
+// ── Officer meeting flow ──────────────────────────────────────────────────
+
+// Prefill for "maximum attendees" when starting a meeting.
+router.get('/session-defaults', async (_req: Request, res: Response): Promise<void> => {
+  res.json({ data: { suggestedMaxAttendees: await suggestedMaxAttendees() } });
+});
+
+// The metadata an officer reviews before signing `createSession`.
+const previewSchema = z.object({
+  sessionId: z.string().regex(/^\d{1,78}$/),
+  name: z.string().trim().min(1).max(200),
+  date: z.string().datetime(),
+});
+
+router.post('/metadata/preview', validate(previewSchema), async (req: Request, res: Response): Promise<void> => {
+  try {
+    res.json({ data: await previewSessionMetadata(req.body as z.infer<typeof previewSchema>) });
+  } catch (err) {
+    logger.error({ msg: 'Metadata preview failed', err: (err as Error).message });
+    res.status(502).json({ error: { code: 'IPFS_ERROR', message: 'Could not pin the metadata' } });
+  }
+});
+
+// The attendee list officer A passes to `closeSession`.
+router.get('/sessions/:sessionId/close-list', async (req: Request, res: Response): Promise<void> => {
+  const session = await findSessionOr404(req.params.sessionId, res);
+  if (!session) return;
+  try {
+    res.json({ data: await getAttendeeList(session) });
+  } catch (err) {
+    logger.error({ msg: 'Could not build attendee list', err: (err as Error).message });
+    res.status(503).json({ error: { code: 'CHAIN_UNAVAILABLE', message: 'Could not read the chain' } });
+  }
+});
+
+// Closed sessions waiting for a second officer.
+router.get('/review', async (req: Request, res: Response): Promise<void> => {
+  res.json({ data: await getReviewQueue(req.user!.walletAddress) });
 });
 
 // ── GET /api/v1/admin/sessions/:sessionId/attendees ───────────────────────
@@ -61,7 +94,7 @@ router.get('/sessions', async (_req: Request, res: Response): Promise<void> => {
 router.get('/sessions/:sessionId/attendees', async (req: Request, res: Response): Promise<void> => {
   const { sessionId } = req.params;
 
-  const session = await findSessionOr404(sessionId, res);
+  const session = await findSessionOr404(sessionId, res, registryParam(req));
   if (!session) return;
 
   const checkIns = await prisma.checkIn.findMany({
@@ -75,6 +108,7 @@ router.get('/sessions/:sessionId/attendees', async (req: Request, res: Response)
       walletAddress: c.member.walletAddress,
       checkedInAt: c.checkedInAt.toISOString(),
       mintStatus: c.mintStatus,
+      failureReason: c.failureReason,
       txHash: c.txHash,
     })),
   });
@@ -128,7 +162,7 @@ router.patch(
 router.get('/export/sessions/:sessionId', async (req: Request, res: Response): Promise<void> => {
   const { sessionId } = req.params;
 
-  const session = await findSessionOr404(sessionId, res);
+  const session = await findSessionOr404(sessionId, res, registryParam(req));
   if (!session) return;
 
   const checkIns = await prisma.checkIn.findMany({
@@ -156,6 +190,8 @@ router.get('/export/sessions/:sessionId', async (req: Request, res: Response): P
 
 router.get('/export/members', async (_req: Request, res: Response): Promise<void> => {
   const { members } = await buildMemberStats();
+  const snapshot = await getRepSnapshotCached(members.map((m) => m.walletAddress));
+  const asOf = snapshot ? new Date(snapshot.asOf * 1000).toISOString() : null;
 
   const rows = [
     csvRow([
@@ -164,52 +200,30 @@ router.get('/export/members', async (_req: Request, res: Response): Promise<void
       'tokens_earned',
       'all_time_pct',
       'semester_pct',
-      'status_tier',
+      'current_rep',
+      'rep_as_of',
       'founding_member',
       'last_seen',
     ]),
-    ...members.map((m) =>
-      csvRow([
+    ...members.map((m) => {
+      const rep = snapshot?.balances.get(m.walletAddress);
+      return csvRow([
         m.walletAddress,
         m.linkedAccount,
         m.tokensEarned,
         m.allTimeAttendancePct,
         m.currentSemesterAttendancePct,
-        m.statusTier,
+        rep === undefined ? null : formatUnits(BigInt(rep), 18),
+        asOf,
         m.foundingMember,
         m.lastSeen,
-      ]),
-    ),
+      ]);
+    }),
   ];
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="members.csv"');
   res.send(rows.join('\r\n'));
-});
-
-// ── GET /api/v1/admin/roles — officers, verified on-chain ─────────────────
-// Read-only on purpose: role changes need governance approval (#82), so the API
-// has no route that grants or revokes a role.
-
-router.get('/roles', async (req: Request, res: Response): Promise<void> => {
-  let officers: Awaited<ReturnType<typeof listOfficers>>;
-  try {
-    officers = await listOfficers(req.user!.walletAddress);
-  } catch (err) {
-    logger.error({ msg: 'Officer reconciliation failed', err: (err as Error).message });
-    res.status(503).json({ error: { code: 'ROLE_CHECK_FAILED', message: 'Could not verify officer roles' } });
-    return;
-  }
-
-  res.json({
-    data: officers.map((r) => ({
-      id: r.id,
-      walletAddress: r.walletAddress,
-      grantedBy: r.grantedBy,
-      grantedAt: r.grantedAt.toISOString(),
-      revokedAt: null,
-    })),
-  });
 });
 
 // ── POST /api/v1/admin/ipfs/publish ──────────────────────────────────────
@@ -220,8 +234,8 @@ router.post('/ipfs/publish', async (_req: Request, res: Response): Promise<void>
   try {
     const result = await publishSemesterMetadata();
 
-    // The backend holds no key that can change the registry's base CID (#82), so a
-    // newly pinned CID is applied on-chain separately (smart-contract/DEPLOY.md).
+    // The backend holds no key that can change the registry: an officer applies a newly
+    // pinned CID with `setBaseCid` from their own wallet.
     logger.info({ msg: 'IPFS metadata publish requested', staged: result.staged, baseCid: result.baseCid, dryRun: result.dryRun });
     res.json({ data: { ...result, baseCidNeedsOnchainUpdate: result.baseCid !== null } });
   } catch (err) {
@@ -233,6 +247,12 @@ router.post('/ipfs/publish', async (_req: Request, res: Response): Promise<void>
 export default router;
 
 // ── Shared helpers ────────────────────────────────────────────────────────
+
+/** `?registry=0x…` reads a session recorded on an earlier registry. */
+function registryParam(req: Request): string | undefined {
+  const { registry } = req.query;
+  return typeof registry === 'string' && isAddress(registry, { strict: false }) ? registry : undefined;
+}
 
 function csvEscape(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '';
