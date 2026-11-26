@@ -13,6 +13,7 @@ import { queryKeys } from '@/lib/api/queryKeys';
 import { requireIdentityToken, retryUnlessForbidden } from '@/lib/api/client';
 import { SessionWithCount, Attendee } from '@/types';
 import CreateSessionForm from '@/components/features/admin/CreateSessionForm';
+import CloseSessionButton from '@/components/features/admin/CloseSessionButton';
 
 export default function AdminSessionsPage() {
   const { authenticated } = usePrivy();
@@ -117,6 +118,12 @@ export default function AdminSessionsPage() {
                               >
                                 {downloadingSessionId === session.sessionId ? '…' : 'CSV'}
                               </button>
+                            )}
+                            {session.onchainStatus === 'CONFIRMED' && !session.closedAt && (
+                              <CloseSessionButton
+                                sessionId={session.sessionId}
+                                sessionName={session.name}
+                              />
                             )}
                             <button
                               onClick={() =>

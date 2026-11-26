@@ -74,6 +74,13 @@ export async function createSession(params: CreateSessionParams, token: string):
   });
 }
 
+export async function closeSession(sessionId: string, token: string): Promise<Session> {
+  return apiRequest<Session>(`/sessions/${encodeURIComponent(sessionId)}/close`, {
+    method: 'POST',
+    token,
+  });
+}
+
 export async function getSession(sessionId: string, token: string): Promise<Session> {
   return apiRequest<Session>(`/sessions/${encodeURIComponent(sessionId)}`, { token });
 }

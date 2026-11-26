@@ -13,7 +13,11 @@ async function confirmTx(
   context: Record<string, unknown>,
 ): Promise<`0x${string}`> {
   logger.info({ msg: `${action} tx submitted`, hash, ...context });
-  await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 120_000 });
+  // A mined transaction can still have reverted; callers must not record it as done.
+  if (receipt.status !== 'success') {
+    throw new Error(`${action} reverted on-chain (tx ${hash})`);
+  }
   logger.info({ msg: `${action} confirmed`, hash, ...context });
   return hash;
 }

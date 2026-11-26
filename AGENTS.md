@@ -30,6 +30,6 @@ Review Phase 5 work against `MASTER_PLAN.md` (Phase 5), `SECURITY.md` and `smart
 ```bash
 cd smart-contract && ~/.foundry/bin/forge test
 cd backend && npm run typecheck && npm test      # tests need a local Postgres
-cd frontend && npm run typecheck && npm run lint && npm run build
+cd frontend && npm test && npm run typecheck && npm run lint && npm run build
 ```
 
