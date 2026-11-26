@@ -2,3 +2,6 @@ cache/
 out/
 lib/
 .env
+# Bootstrap inputs and broadcast logs are per deployment.
+data/
+broadcast/

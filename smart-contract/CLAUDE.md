@@ -15,17 +15,20 @@ smart-contract/
     ClubRep.sol               # Phase 5: soulbound, decay-aware IVotes; current + historical power
     ClubGovernor.sol          # Phase 5: OZ Governor (+ reachable quorum floor)
     ClubTimelock.sol          # Phase 5: OZ TimelockController + expireGuardian()
-    interfaces/
-      IAttendanceRegistry.sol # External interface
+    libraries/
+      DecayMath.sol           # Phase 5: fixed-point half-life decay
+    interfaces/               # External interfaces (registry, registry2, Rep)
   test/
     AttendanceRegistry.t.sol  # Forge tests (one file per src contract)
-    helpers/
-      BaseTest.sol            # Shared test setup
+    Gas.t.sol                 # <10M gas bounds; writes snapshots/Phase5.json
+    *.invariant.t.sol         # Officer floor, Rep total/history invariants
+    helpers/                  # Shared setups and an independent decay reference model
   script/
     Deploy.s.sol              # Legacy deployment script
-    DeployClub.s.sol          # Phase 5: deploys Timelock → Rep → registry → Governor, hands off roles
-    ImportLegacy.s.sol        # Phase 5: batches ClubRep.importLegacy over legacy sessions
-    CreateSession.s.sol       # Admin ops scripts
+    ClubDeployment.sol        # Phase 5 bootstrap steps, shared by scripts and tests
+    FreezeLegacy.s.sol        # Step 0: freeze the legacy registry
+    DeployClub.s.sol          # Step 1: Timelock → Rep → registry → Governor
+    ImportLegacy.s.sol        # Steps 2–3: import legacy attendance, finalize, hand off
   lib/                        # Foundry dependencies (git submodules)
   foundry.toml
 ```

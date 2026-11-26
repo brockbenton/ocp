@@ -25,6 +25,7 @@ When reviewing a PR, check it against the inventory below and flag:
 |---|---|
 | ✅ **Live** | Implemented on `master` today |
 | 🟡 **v1** | Planned for Phase 5 — Club DAO v1 (our club). Issue linked. |
+| 🔧 **Built** | Implemented and tested in this repo for Phase 5; **not deployed or audited**. |
 | 🔵 **v2** | Deferred to Phase 6 — multi-club / v2 governance |
 | ⚠️ **Gap** | Known weakness in the live system, not yet fixed |
 | 📝 **Accepted** | Residual risk we've knowingly accepted |
@@ -117,19 +118,19 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 
 | Feature | Status | Details |
 |---|---|---|
-| Rep is soulbound | 🟡 | Decay-aware `IVotes`, no transfer/approve surface or usable delegation; each account is its own delegate. Ordinary OZ `Votes` checkpoints do not decay automatically (#68) |
-| Rep pending until a second officer confirms | 🟡 decided | Officer A closes with the sorted unique AT-holder list → Pending (zero power). A different officer B (or Timelock) confirms, fixing one recognition timestamp; anyone credits sequential pages. Pending never expires; any officer can reject while Pending. Empty lists complete without credit (#50) |
-| Rep only for real token holders | 🟡 | Only listed addresses that hold that session's attendance token are credited, at most `maxAttendees` |
-| Full attendance award | 🟡 decided | **10 nominal Rep per eligible attendance**, no pro-rata reduction or supply-dependent award. A 300-attendee session awards 3,000 nominal Rep. No per-member weekly cap, club-wide weekly budget or deferred claims (#50) |
-| Gradual Rep decay | 🟡 v1 required | `r × 2^(-(t-t0)/H)`; **180-day half-life provisional** for 5a validation, immutable per deployment. No officer/keeper-triggered epoch rollover or semester reset; new credit does not refresh old Rep (#61, #68) |
-| Historical vote weights and totals | 🟡 | Decay-aware account and total power at timestamp t; fixed proposal snapshot for weight/quorum. Later decay, credits and revokes never rewrite old snapshots. Consistent fixed-point units/rounding; bounded historical reads (#61, #68) |
-| Delayed page credit | 🟡 | Decay measured from the session's common recognition time, no power before the page lands and no retroactive checkpoint. Hash/cursor prevent double-credit. Blocked recipients skip-and-emit without stalling others (#50, #68) |
-| Minimum 2 officers | 🟡 decided | Enforced in `_revokeRole` (covers revoke + renounce); election templates grant the new officer before revoking the old (#60) |
-| Relay can't create Rep | 🟡 | A leaked relay key can only mint attendance tokens, which carry no Rep |
-| Mint pause | 🟡 | Any officer can pause minting; auto-expires after 14 days; each officer may pause once per 30 days; unpause by 2 officers or the Timelock (#52) |
-| Governance Rep revoke | 🟡 | Timelock removes remaining decayed power and blocks new credit until cleared; historical snapshots stay unchanged. Grants decay from execution and record a reason (#68) |
+| Rep is soulbound | 🔧 | Decay-aware `IVotes`, no transfer/approve surface or usable delegation; each account is its own delegate. Ordinary OZ `Votes` checkpoints do not decay automatically (#68) |
+| Rep pending until a second officer confirms | 🔧 | Officer A closes with the sorted unique AT-holder list → Pending (zero power). A different officer B (or Timelock) confirms, fixing one recognition timestamp; anyone credits sequential pages. Pending never expires; any officer can reject while Pending. Empty lists complete without credit (#50) |
+| Rep only for real token holders | 🔧 | Only listed addresses that hold that session's attendance token are credited, at most `maxAttendees` |
+| Full attendance award | 🔧 | **10 nominal Rep per eligible attendance**, no pro-rata reduction or supply-dependent award. A 300-attendee session awards 3,000 nominal Rep. No per-member weekly cap, club-wide weekly budget or deferred claims (#50) |
+| Gradual Rep decay | 🔧 | `r × 2^(-(t-t0)/H)`; **180-day half-life provisional** for 5a validation, immutable per deployment. No officer/keeper-triggered epoch rollover or semester reset; new credit does not refresh old Rep (#61, #68) |
+| Historical vote weights and totals | 🔧 | Decay-aware account and total power at timestamp t; fixed proposal snapshot for weight/quorum. Later decay, credits and revokes never rewrite old snapshots. Consistent fixed-point units/rounding; bounded historical reads (#61, #68) |
+| Delayed page credit | 🔧 | Decay measured from the session's common recognition time, no power before the page lands and no retroactive checkpoint. Hash/cursor prevent double-credit. Blocked recipients skip-and-emit without stalling others (#50, #68) |
+| Minimum 2 officers | 🔧 | Enforced in `_revokeRole` (covers revoke + renounce); election templates grant the new officer before revoking the old (#60) |
+| Relay can't create Rep | 🔧 | A leaked relay key can only mint attendance tokens, which carry no Rep |
+| Mint pause | 🔧 | Any officer can pause minting; auto-expires after 14 days; each officer may pause once per 30 days; unpause by 2 officers or the Timelock (#52) |
+| Governance Rep revoke | 🔧 | Timelock removes remaining decayed power and blocks new credit until cleared; historical snapshots stay unchanged. Grants decay from execution and record a reason (#68) |
 | Anomaly alerts | 🟡 | Backend flags sessions whose attendance far exceeds normal; review queue for the confirming officer |
-| Legacy Rep import is computed on-chain | 🟡 | Derive nominal Rep on-chain from closed sessions in the frozen legacy registry, at most 10× legacy ATs. All import batches share a deployment-fixed recognition time, then decay. No proposals until finalized (#51) |
+| Legacy Rep import is computed on-chain | 🔧 | Derive nominal Rep on-chain from closed sessions in the frozen legacy registry, at most 10× legacy ATs. All import batches share a deployment-fixed recognition time, then decay. No proposals until finalized (#51) |
 
 > ⚠️ **Changed threat model — review before deployment:** two colluding officers can approve repeated fabricated sessions, creating fresh Rep with **no weekly issuance-rate bound**. Decay does not prevent capture before governance removes them. Governance revoke/removal depend on honest governance still having control. Mint pause does not block existing Pending confirmations; two colluders can unpause each other. Do not carry forward the old "up to the weekly budget" guarantee (#50).
 > 🟡 **Decay is required in v1:** inactive influence fades, AT history stays permanent. Validate the half-life, fixed-point precision, and proposal recovery after long inactivity before deployment (#52, #61, #68).
@@ -145,13 +146,15 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Re-entrancy guard on mint | ✅ | `nonReentrant` |
 | Custom errors, events for every state change | ✅ | `SessionNotActive`, `AlreadyCheckedIn`, `Soulbound`, … |
 | No upgradeable proxies, no `tx.origin`, no `selfdestruct` | ✅ | Enforced by `smart-contract/CLAUDE.md` |
-| Optimizer on + bytecode size check | 🟡 | `optimizer = true`, 200 runs; `forge build --sizes` on every contract (#54) |
-| Bounded governance parameters | 🟡 | Voting delay 1 h–7 d · voting period 3–14 d · Timelock delay 1–7 d · quorum 5–30% · proposal threshold 10–1,000 Rep (#66) |
-| Snapshot quorum and inactivity recovery | 🟡 | `max(numerator × supply(t), min(minQuorum, 50% × supply(t)))` uses **decayed snapshot supply**. Positive-supply floor is clamped, but proposal-threshold recovery and zero/dust supply behavior must be resolved/tested before deploy (#52, #61) |
-| Timelock roles exact | 🟡 | Governor = proposer + canceller; guardian = canceller only (bootstrap); deployer renounces (#62) |
-| Timestamp use | 🟡 | Allowed for gradual decay, recognition timestamps, ERC-6372 clock, pause/guardian expiry and durations; never caller authorization. No weekly Rep buckets or officer-controlled epoch rollover |
-| Mint without receiver hook; batch skips duplicates | 🟡 | One bad recipient can't revert a whole batch (#59) |
-| Paginated Rep crediting | 🟡 | Close stores list hash; full 10 nominal Rep is credited in sequential pages with common recognition time. Test <10M gas, blocked recipients and long inactivity (#50, #68, #75) |
+| Optimizer on + bytecode size check | 🔧 | `optimizer = true`, 200 runs; `forge build --sizes` on every contract (#54) |
+| Bounded governance parameters | 🔧 | Voting delay 1 h–7 d · voting period 3–14 d · Timelock delay 1–7 d · quorum 5–30% · proposal threshold 10–1,000 Rep (#66) |
+| Snapshot quorum and inactivity recovery | 🔧 | `max(numerator × supply(t), min(minQuorum, 50% × supply(t)))` uses **decayed snapshot supply**. Positive-supply floor is clamped, but proposal-threshold recovery and zero/dust supply behavior must be resolved/tested before deploy (#52, #61) |
+| Timelock roles exact | 🔧 | Governor = proposer + canceller; guardian = canceller only (bootstrap); deployer renounces (#62) |
+| Timestamp use | 🔧 | Allowed for gradual decay, recognition timestamps, ERC-6372 clock, pause/guardian expiry and durations; never caller authorization. No weekly Rep buckets or officer-controlled epoch rollover |
+| Mint without receiver hook; batch skips duplicates | 🔧 | One bad recipient can't revert a whole batch (#59) |
+| Paginated Rep crediting | 🔧 | Close stores list hash; full 10 nominal Rep is credited in sequential pages with common recognition time. Gas tests hold every transaction under 10M, including blocked recipients and long inactivity (#50, #68, #75) |
+| Governor timelock fixed | 🔧 | `updateTimelock` reverts: the registry and Rep admin is permanently the original Timelock |
+| Self-revocation of Governor roles | 📝 | A passed proposal could remove the Governor's Timelock roles and end governance. Open for the audit |
 
 ---
 
@@ -238,9 +241,9 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 - Guardian Safe signers
 - Who funds officer wallets, and how much
 - Validate provisional 180-day half-life and fixed-point precision/rounding during 5a; immutable per deployment
-- Validate provisional proposal threshold 30 Rep and minQuorum 100 Rep; define recovery when everyone falls below threshold, and zero/dust-supply behavior **before deployment** (#52, #61, #68)
+- Validate provisional proposal threshold 30 Rep and minQuorum 100 Rep; define recovery when everyone falls below threshold, and zero/dust-supply behavior **before deployment** (#52, #61, #68). Current behavior is recorded in `MASTER_PLAN.md` → 5a implementation record
 - Review repeated-session officer collusion without aggregate Rep issuance limits; decay is not an anti-farming control (#50)
-- Verify historical indexer/tooling compatibility and bounded gas after long inactivity (#68, #75)
+- Verify historical indexer/Tally compatibility on a testnet deployment (#68). Bounded gas after long inactivity is tested (#75)
 
 ---
 

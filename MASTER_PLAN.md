@@ -313,8 +313,8 @@ ClubTimelock         OZ TimelockController + guardian CANCELLER in constructor +
 - **Retired Rep parameters:** remove `repFloor`, `capBps`, `memberWeeklyCap`, `weeklyFloor`, `weeklyBps`, weekly counters, deferred balances and `claimDeferredRep` from the v1 design and implementation checklist. Attendee-count and transaction-page limits remain.
 
 **ClubRep rules (#51, #68):**
-- Constructor `(timelock, legacyRegistry, importer)`: the Timelock is `DEFAULT_ADMIN_ROLE` from the start (locked, as on the registry); `setRegistry(registry)` is a one-time importer call that grants the registry `MINTER_ROLE`.
-- Attendance credit is `MINTER_ROLE` (registry) only, called from `creditSessionRep`, carrying nominal amount and the session's immutable recognition timestamp. It must not reset the age of an account's existing Rep. The implementation API is finalized with #68.
+- Constructor `(timelock, legacyRegistry, importer, halfLife)`: the Timelock is `DEFAULT_ADMIN_ROLE` from the start (locked, as on the registry); `setRegistry(registry)` is a one-time importer call that grants the registry `MINTER_ROLE`, which no other account can ever hold.
+- Attendance credit is `MINTER_ROLE` (registry) only: `credit(accounts, recognizedAt)`, called from `creditSessionRep` with the session's immutable recognition timestamp. The nominal amount is Rep's own `REP_PER_CHECKIN`, so no caller can choose it, and events carry both nominal and decayed amounts. It does not reset the age of an account's existing Rep.
 - `grant(to, amount, reasonURI)` / `revoke(account, reasonURI)` — Timelock only. Grants decay from execution and do not refresh existing Rep. `revoke` removes the account's remaining decayed balance (total power updates at the same timestamp; past snapshots stay unchanged) and flags the account so it can't be credited again unless the Timelock clears the flag. Clearing the flag does not restore revoked Rep. Paged credit must skip-and-emit for blocked recipients without stalling other attendees, and advance the cursor so a blocked award cannot be replayed after clearing.
 - **Import (one-time, derived on-chain):** `importLegacy(address[] accounts, uint256[] legacySessionIds)` — deployer only, before `finalizeImport()`. Nominal Rep per account = `REP_PER_CHECKIN × Σ legacy.balanceOf(account, id)` over the given legacy session IDs (strictly increasing; each must exist on the legacy registry **and be closed** — `getSession(id).active == false`, checked on-chain, so no further legacy ATs can be minted into an imported session). Each account imports once. All imported credits share a fixed migration recognition timestamp set at deployment (not the transaction time of each import batch), then decay like new credits. This is a one-time bootstrap recognition of legacy attendance, not reconstructed historical voting power. Lifetime AT history remains unchanged. The legacy registry is frozen **before** the import (Bootstrap step 0). **The backend supplies no balances**: the import can't exceed 10 × legacy ATs by construction, and anyone can recompute it from the legacy contract.
 - `finalizeImport()` — deployer only, irreversible. **`ClubGovernor.propose` reverts until the import is finalized.**
@@ -439,13 +439,62 @@ Every setter OZ exposes to governance is overridden with bounds (audit B3) — e
 
 **5a — Contracts**
 - [x] Amend `smart-contract/CLAUDE.md` for Phase 5 v1 (owner-approved, #67); optimizer on in `foundry.toml`
-- [ ] `ClubRep` (decay-aware IVotes, soulbound, no delegation, timestamp clock + historical account/total checkpoints, reviewed fixed-point decay math, locked Timelock admin, minter/grant/revoke, common-timestamp legacy import + finalize)
-- [ ] `AttendanceRegistry2` (sessions with `maxAttendees` and no time limits, `mint`/`mintBatch` without the receiver hook, two-officer sign-off `closeSession` → `confirmSessionRep` / `rejectSessionRep` → paged `creditSessionRep`, full 10 nominal Rep per attendee with common recognition timestamp, officer metadata, pause/2-officer unpause, 2-officer floor, locked Timelock admin, bounded params)
-- [ ] `ClubGovernor` (reachable quorum floor, bounded setters, `propose` gated on import) + `ClubTimelock` (guardian CANCELLER in constructor, bounded `updateDelay`, `expireGuardian`)
-- [ ] `DeployClub.s.sol` + `ImportLegacy.s.sol` (freeze legacy → deploy → import → finalize → deployer renounces); handoff/order test
-- [ ] Tests: unit + fuzz + reference model (AT cap, pause rules, sign-off state machine incl. same-officer confirm revert, full 10-Rep awards regardless of supply/session size, replay-safe paging and delayed-page decay, half-life/precision/history/total invariants, new credit preserves old age, common-timestamp legacy import, revoke/blocklist, snapshot quorum, long-inactivity recovery, zero/dust supply, setter bounds, 2-officer floor, locked admin); **gas test: close + confirm + paged credit for 300 attendees and historical vote reads after long inactivity; every tx < 10M gas**; `forge build --sizes` on all four contracts
+- [x] `ClubRep` (decay-aware IVotes, soulbound, no delegation, timestamp clock + historical account/total checkpoints, reviewed fixed-point decay math, locked Timelock admin, minter/grant/revoke, common-timestamp legacy import + finalize)
+- [x] `AttendanceRegistry2` (sessions with `maxAttendees` and no time limits, `mint`/`mintBatch` without the receiver hook, two-officer sign-off `closeSession` → `confirmSessionRep` / `rejectSessionRep` → paged `creditSessionRep`, full 10 nominal Rep per attendee with common recognition timestamp, officer metadata, pause/2-officer unpause, 2-officer floor, locked Timelock admin, bounded params)
+- [x] `ClubGovernor` (reachable quorum floor, bounded setters, `propose` gated on import) + `ClubTimelock` (guardian CANCELLER in constructor, bounded `updateDelay`, `expireGuardian`)
+- [x] `DeployClub.s.sol` + `ImportLegacy.s.sol` (freeze legacy → deploy → import → finalize → deployer renounces); handoff/order test
+- [x] Tests: unit + fuzz + reference model (AT cap, pause rules, sign-off state machine incl. same-officer confirm revert, full 10-Rep awards regardless of supply/session size, replay-safe paging and delayed-page decay, half-life/precision/history/total invariants, new credit preserves old age, common-timestamp legacy import, revoke/blocklist, snapshot quorum, long-inactivity recovery, zero/dust supply, setter bounds, 2-officer floor, locked admin); **gas test: close + confirm + paged credit for 300 attendees and historical vote reads after long inactivity; every tx < 10M gas**; `forge build --sizes` on all four contracts
 - [ ] `contract-auditor` + `security-reviewer` pass on the code
 - [ ] Deploy to Base Sepolia; `addresses.json` + ABI sync
+
+#### 5a implementation record
+
+Implemented and tested; **not deployed, not audited**.
+
+**Role matrix.** The deployer is also `ClubRep`'s immutable importer until `finalizeImport` (not a role). The Governor holds no registry or Rep role; it acts through the Timelock.
+
+| Contract · role | During `DeployClub` | After handoff (bootstrap) | After the guardian is removed |
+|---|---|---|---|
+| Timelock · `DEFAULT_ADMIN_ROLE` | Timelock, deployer | Timelock | Timelock |
+| Timelock · `PROPOSER_ROLE` | Governor | Governor | Governor |
+| Timelock · `CANCELLER_ROLE` | Governor, guardian | Governor, guardian | Governor |
+| Timelock · `EXECUTOR_ROLE` | `address(0)` | `address(0)` | `address(0)` |
+| Registry · `DEFAULT_ADMIN_ROLE` | Timelock | Timelock | Timelock |
+| Registry · `ADMIN_ROLE` | founding officers (≥ 2) | officers (≥ 2) | officers (≥ 2) |
+| Registry · `RELAY_ROLE` | relay | relay | relay |
+| Rep · `DEFAULT_ADMIN_ROLE` | Timelock | Timelock | Timelock |
+| Rep · `MINTER_ROLE` | registry | registry | registry |
+
+**Bytecode** (optimizer 200 runs, `via_ir` off because nothing needs it; limit 24,576 bytes, enforced in CI):
+
+| Contract | Runtime bytes | Margin |
+|---|---|---|
+| `AttendanceRegistry2` | 15,623 | 8,953 |
+| `ClubGovernor` | 17,586 | 6,990 |
+| `ClubRep` | 11,549 | 13,027 |
+| `ClubTimelock` | 7,128 | 17,448 |
+
+**Gas** (each call as its own transaction; full list in `smart-contract/snapshots/Phase5.json`, bounds asserted in `test/Gas.t.sol`):
+
+| Transaction or read | Gas |
+|---|---|
+| `mint` | 62k |
+| `mintBatch` of 200 | 5.66M |
+| `closeSession` with 300 attendees | 1.10M |
+| `confirmSessionRep` | 54k |
+| `creditSessionRep` page of 100 (worst: first-time recipients) | 5.58M |
+| `grant` / `revoke` | 124k / 96k |
+| `importLegacy`, 30 accounts × 20 sessions | 4.76M |
+| `getPastVotes` with 8 / 1,008 checkpoints, 50 years idle | 17k / 34k |
+| `getPastTotalSupply` with 1,008 checkpoints | 36k |
+
+**Numeric bounds.** 18-decimal fixed point; balances and total capped at `2^128 − 1`; half-life accepted in [30, 3650] days. Decay rounds down, is exact at whole half-lives and matches an independent series model within one part in 10^18. 10 Rep reaches zero after 64 half-lives. The total is tracked separately from accounts; they differ by at most a few base units per change plus one part in 10^16 of the largest supply (invariant-tested).
+
+**Open before deployment (owner decisions).**
+- *Inactivity recovery (#52):* after a long break everyone can be below the proposal threshold. Nothing bypasses it. Today the only way back is new attendance: officers don't depend on Rep, so a couple of confirmed meetings restore eligibility (tested). That fails only if fewer than two officers can act while nobody can propose. Accept this, or specify another path.
+- *Zero and dust supply:* quorum is 0 at supply 0 or 1 base unit; a proposal with no votes is Defeated (tested). Confirm this is acceptable.
+- *For the audit:* a passed proposal can still revoke the Governor's own Timelock roles, which would end governance. The design doesn't call for preventing it; decide whether to.
+- Half-life, threshold and floor remain provisional; the collusion threat model needs review (#50).
 
 **5b — Backend**
 - [ ] Relay sender (nonce manager, replacement, SUBMITTED), `mintBatch` coalescing
