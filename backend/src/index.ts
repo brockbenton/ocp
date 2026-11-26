@@ -12,6 +12,7 @@ const required = [
   'ADMIN_SIGNER_PRIVATE_KEY',
   'PRIVY_APP_ID',
   'PRIVY_APP_SECRET',
+  'CORS_ORIGINS',
 ] as const;
 
 for (const key of required) {
@@ -19,6 +20,11 @@ for (const key of required) {
     logger.error({ msg: `Missing required environment variable: ${key}` });
     process.exit(1);
   }
+}
+
+// Optional, but a production deploy without it publishes relative art and badge URLs.
+if (process.env.NODE_ENV === 'production' && !process.env.PUBLIC_API_URL) {
+  logger.warn({ msg: 'PUBLIC_API_URL is unset: art and badge URLs will be relative' });
 }
 
 const app = createApp();

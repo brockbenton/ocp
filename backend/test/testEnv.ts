@@ -14,4 +14,5 @@ export const TEST_ENV: Record<string, string> = {
   CHAIN_ID: '84532',
   OFFICIAL_MEMBER_THRESHOLD: '75',
   PUBLIC_API_URL: 'http://localhost:3001',
+  CORS_ORIGINS: 'http://localhost:3000,https://app.example.com/',
 };

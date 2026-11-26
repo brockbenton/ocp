@@ -182,8 +182,8 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Admin auth checks the chain, fails closed | ✅ | `adminMiddleware` reads on-chain `ADMIN_ROLE` on every request; RPC failure → `503`, not access (`backend/src/middleware/admin.ts`) |
 | Governance-only role changes | ⚠️ → 🟡 | Both grants and revocations require an approved governance vote and Timelock execution. Live POST/DELETE `/api/v1/admin/roles` paths allow officers to use the default-admin signer when configured; remove this bypass and add regression tests (#82, #55) |
 | Live officer checks stay live | 🟡 | Revocations must never wait on an indexer cache (#69) |
-| CORS | ⚠️ | `cors()` allows any origin. Low impact (Bearer tokens, not cookies), but should be restricted to the frontend origin (#80) |
-| Security headers | ⚠️ | No `helmet` / security headers on the API (#81) |
+| CORS | ✅ | Exact-match origin allowlist from `CORS_ORIGINS` (required at startup); methods `GET, POST, PATCH, DELETE` and headers `Authorization, Content-Type` only (#80) |
+| Security headers | ✅ | `helmet` on the API: `default-src 'none'; frame-ancestors 'none'`, HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; no `X-Powered-By`. Only the public SVG art routes are cross-origin embeddable (#81) |
 | Structured logging | ✅ | pino; no `console.log` |
 
 ---
@@ -216,6 +216,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Feature | Status | Details |
 |---|---|---|
 | No secrets in the client | ✅ | Only `NEXT_PUBLIC_*` values (Privy app id, API URL) |
+| Security headers | ✅ | `frame-ancestors 'none'`, HSTS, `nosniff`, `Referrer-Policy`, `Permissions-Policy` (camera for this origin only). No script/connect CSP, so Privy keeps working (#81) |
 | Fail fast without Privy config | ✅ | `next.config.mjs` fails dev and build when `NEXT_PUBLIC_PRIVY_APP_ID` is missing (#49) |
 | Current influence and permanent history | 🟡 | Show pending officer approval, approved-awaiting-credit and credited influence with an as-of time. Current Rep decays without new events; timestamp/refresh caches. Lifetime AT/history is separate. No weekly-deferred-credit UI (#61, #68) |
 
