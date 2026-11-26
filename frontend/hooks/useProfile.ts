@@ -1,11 +1,12 @@
 'use client';
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import { getMyProfile, updateMyProfile, type ProfilePatch } from '@/lib/api/profile';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { requireIdentityToken, retryUnlessForbidden } from '@/lib/api/client';
 import { shortenAddress } from '@/lib/address';
+import { embeddedAddressOf } from '@/lib/identity';
 
 export function useProfile() {
   const { ready, authenticated, user } = usePrivy();
@@ -28,12 +29,11 @@ export function useUpdateProfile() {
   });
 }
 
+/** The signed-in member's identity wallet. The backend's answer wins once it loads. */
 export function useEmbeddedAddress(): string | undefined {
   const { user } = usePrivy();
-  const { wallets } = useWallets();
-  return (
-    wallets.find((w) => w.walletClientType === 'privy')?.address ?? user?.wallet?.address
-  )?.toLowerCase();
+  const { data: profile } = useProfile();
+  return profile?.walletAddress ?? embeddedAddressOf(user);
 }
 
 // Never the raw email: chosen username → shortened wallet → generic fallback.

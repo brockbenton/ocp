@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrivyClient } from '@privy-io/server-auth';
+import { PrivyClient, type User } from '@privy-io/server-auth';
+import { resolveIdentity } from '../services/identity.service';
 import { AuthUser } from '../types';
 
 let _privy: PrivyClient | null = null;
@@ -35,17 +36,20 @@ export async function authMiddleware(
   }
 
   const token = authHeader.slice(7);
+  let user: User;
   try {
     // Use idToken overload — fetches user + verifies JWT in one call without rate limits.
-    const user = await getPrivy().getUser({ idToken: token });
-    const walletAddress = user.wallet?.address?.toLowerCase();
-    if (!walletAddress) {
-      res.status(403).json({ error: { code: 'NO_WALLET', message: 'No wallet linked to account' } });
-      return;
-    }
-    req.user = { privyUserId: user.id, walletAddress };
-    next();
+    user = await getPrivy().getUser({ idToken: token });
   } catch {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Invalid auth token' } });
+    return;
   }
+
+  const walletAddress = await resolveIdentity(user);
+  if (!walletAddress) {
+    res.status(403).json({ error: { code: 'NO_WALLET', message: 'No embedded wallet on this account' } });
+    return;
+  }
+  req.user = { privyUserId: user.id, walletAddress };
+  next();
 }

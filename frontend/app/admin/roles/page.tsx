@@ -2,12 +2,12 @@
 
 export const dynamic = 'force-dynamic';
 
-import { usePrivy } from '@privy-io/react-auth';
 import { useQuery } from '@tanstack/react-query';
 import AdminPageHeader from '@/components/features/admin/AdminPageHeader';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { listAdminRoles } from '@/lib/api/admin';
 import { requireIdentityToken, retryUnlessForbidden } from '@/lib/api/client';
+import { useEmbeddedAddress } from '@/hooks/useProfile';
 
 function truncateWallet(addr: string): string {
   return addr.startsWith('0x') ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : addr;
@@ -22,7 +22,7 @@ function formatDate(iso: string): string {
 }
 
 export default function AdminRolesPage() {
-  const { user } = usePrivy();
+  const myWallet = useEmbeddedAddress();
 
   const { data: roles, isLoading, error } = useQuery({
     queryKey: queryKeys.adminRoles(),
@@ -32,8 +32,6 @@ export default function AdminRolesPage() {
     },
     retry: retryUnlessForbidden,
   });
-
-  const myWallet = user?.wallet?.address?.toLowerCase();
 
   return (
     <div className="space-y-10">

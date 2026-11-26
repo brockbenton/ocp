@@ -4,7 +4,12 @@ import request from 'supertest';
 vi.mock('@privy-io/server-auth', () => ({
   PrivyClient: class {
     async getUser() {
-      return { id: 'did:privy:member', wallet: { address: '0x1111111111111111111111111111111111111111' } };
+      return {
+        id: 'did:privy:member',
+        linkedAccounts: [
+          { type: 'wallet', walletClientType: 'privy', address: '0x1111111111111111111111111111111111111111' },
+        ],
+      };
     }
   },
 }));
