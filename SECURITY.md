@@ -97,7 +97,7 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 | Feature | Status | Details |
 |---|---|---|
 | Admin-signed QR payload | ✅ | `{sessionId, issuedAt, expiresAt, nonce}` signed by the QR key; verified server-side (`qr.service.ts`) |
-| QR expiry | ✅ / 🟡 | Live: `QR_TTL_MS` default 10 min. **Decided:** 5 min, auto-refreshing before expiry (#72) |
+| QR expiry | ✅ | Each QR is valid for 5 minutes (`QR_TTL_MS`, which can only shorten it). The projector page fetches a replacement 90 s before expiry, keeps the current code up while retrying, and never shows an expired one (#72) |
 | Member signature bound to their wallet | ✅ | Member signs `I am checking into session {id} as {addr} at {t}`; recovered address must equal the Privy wallet |
 | Stale-signature window | ✅ | Member signature must be ≤ 60 s old and ≤ 10 s in the future |
 | One check-in per member per session | ✅ | DB `@@unique([memberId, sessionId])` **and** contract `AlreadyCheckedIn` |
@@ -181,7 +181,7 @@ Attendance tokens and Rep are separate: tokens mint instantly as a record; **Rep
 | Async errors reach the error handler | ✅ | `express-async-errors` |
 | Admin auth checks the chain, fails closed | ✅ | `adminMiddleware` reads on-chain `ADMIN_ROLE` on every request; RPC failure → `503`, not access (`backend/src/middleware/admin.ts`) |
 | Governance-only role changes | ⚠️ → 🟡 | Both grants and revocations require an approved governance vote and Timelock execution. Live POST/DELETE `/api/v1/admin/roles` paths allow officers to use the default-admin signer when configured; remove this bypass and add regression tests (#82, #55) |
-| Live officer checks stay live | 🟡 | Revocations must never wait on an indexer cache (#69) |
+| Live officer checks stay live | ✅ | The authoritative officer source is the registry's on-chain `hasRole(ADMIN_ROLE)`, read on every session, QR, export and PII request with no cache, so a revoked officer loses access on their next request. RPC failure fails closed (#69) |
 | CORS | ✅ | Exact-match origin allowlist from `CORS_ORIGINS` (required at startup); methods `GET, POST, PATCH, DELETE` and headers `Authorization, Content-Type` only (#80) |
 | Security headers | ✅ | `helmet` on the API: `default-src 'none'; frame-ancestors 'none'`, HSTS, `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; no `X-Powered-By`. Only the public SVG art routes are cross-origin embeddable (#81) |
 | Structured logging | ✅ | pino; no `console.log` |

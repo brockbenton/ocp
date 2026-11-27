@@ -138,7 +138,7 @@ Token metadata (IPFS):
 ```
 1. Admin opens /admin/sessions → clicks "Start Check-In"
 2. Backend creates session record, generates payload:
-   { sessionId, expiresAt (now + 10min), nonce } signed by ADMIN_ROLE key
+   { sessionId, expiresAt (now + 5min), nonce } signed by ADMIN_ROLE key
 3. Frontend renders QR code from signed payload — displayed on projector
 4. Member opens app → scans QR
 5. Frontend sends payload to backend:
@@ -152,7 +152,7 @@ Token metadata (IPFS):
 9. Token lands in member's wallet. Done.
 
 Anti-cheat properties:
-  - QR expires in ~10 minutes (configurable)
+  - QR expires after 5 minutes (can be configured shorter) and the projector page refreshes it before then
   - Each sessionId is single-use per address (contract enforces)
   - Payload is cryptographically signed — can't be forged
   - Admin must be physically present to generate the QR

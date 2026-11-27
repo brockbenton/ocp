@@ -119,10 +119,13 @@ export async function revokeAdminRole(walletAddress: string, token: string): Pro
   );
 }
 
+// A request that never settles would stall the projector's refresh, so it is abandoned.
+const QR_REQUEST_TIMEOUT_MS = 15_000;
+
 export async function getSessionQR(sessionId: string, token: string): Promise<string> {
   const result = await apiRequest<{ qr: string }>(
     `/sessions/${encodeURIComponent(sessionId)}/qr`,
-    { token },
+    { token, signal: AbortSignal.timeout(QR_REQUEST_TIMEOUT_MS) },
   );
   return result.qr;
 }
