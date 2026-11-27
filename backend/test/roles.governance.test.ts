@@ -25,7 +25,12 @@ vi.mock('viem', async (importOriginal) => ({
 vi.mock('@privy-io/server-auth', () => ({
   PrivyClient: class {
     async getUser() {
-      return { id: 'did:privy:officer', wallet: { address: '0x1111111111111111111111111111111111111111' } };
+      return {
+        id: 'did:privy:officer',
+        linkedAccounts: [
+          { type: 'wallet', walletClientType: 'privy', address: '0x1111111111111111111111111111111111111111' },
+        ],
+      };
     }
   },
 }));

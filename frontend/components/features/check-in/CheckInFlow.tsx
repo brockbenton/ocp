@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { usePrivy, useWallets, useSignMessage, getIdentityToken } from '@privy-io/react-auth';
+import { useSignMessage, getIdentityToken } from '@privy-io/react-auth';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
@@ -104,8 +104,6 @@ interface CheckInFlowProps {
 }
 
 export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
-  const { user } = usePrivy();
-  const { wallets } = useWallets();
   const { signMessage } = useSignMessage();
 
   const [step, setStep] = useState<CheckInStep>('scan');
@@ -131,14 +129,10 @@ export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
 
   const { mutate: processCheckIn } = useMutation({
     mutationFn: async (qrPayload: string) => {
-      // 1. Get the member's embedded wallet address
-      const embeddedWallet = wallets.find((w) => w.walletClientType === 'privy');
-      const walletAddress = embeddedWallet?.address ?? user?.wallet?.address;
-      if (!walletAddress) {
+      // 1. The member's identity is their embedded wallet
+      if (!address) {
         throw new Error('No wallet linked to your account. Please sign out and sign in again.');
       }
-
-      const normalizedAddress = walletAddress.toLowerCase();
 
       // 2. Get the identity token for backend auth
       const token = await getIdentityToken();
@@ -163,11 +157,12 @@ export default function CheckInFlow({ onRestart }: CheckInFlowProps) {
       // 4. Sign the check-in message
       setStep('signing');
       const signedAt = Date.now();
-      const message = `I am checking into session ${sessionId} as ${normalizedAddress} at ${signedAt}`;
+      const message = `I am checking into session ${sessionId} as ${address} at ${signedAt}`;
 
       const { signature } = await signMessage(
         { message },
         {
+          address,
           uiOptions: {
             title: 'Confirm Check-In',
             description: `Sign to confirm attendance for session ${sessionId}`,

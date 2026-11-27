@@ -11,6 +11,7 @@ import {
   buildMemberVault,
   buildPersonalStats,
 } from '../services/stats.service';
+import { findOrCreateMember } from '../services/identity.service';
 
 const router = Router();
 
@@ -77,11 +78,7 @@ router.patch(
     const patch = req.body as z.infer<typeof profilePatchSchema>;
 
     try {
-      const member = await prisma.member.upsert({
-        where: { walletAddress },
-        update: patch,
-        create: { walletAddress, privyUserId, ...patch },
-      });
+      const member = await findOrCreateMember(walletAddress, privyUserId, patch);
       res.json({ data: toProfile(walletAddress, member) });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === UNIQUE_VIOLATION) {

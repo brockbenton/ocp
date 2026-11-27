@@ -3,7 +3,8 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
+import { useEmbeddedAddress } from '@/hooks/useProfile';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -15,17 +16,14 @@ import { PersonalStats } from '@/types';
 import FullPageSpinner from '@/components/shared/FullPageSpinner';
 
 export default function StatsPage() {
-  const { ready, authenticated, user } = usePrivy();
-  const { wallets } = useWallets();
+  const { ready, authenticated } = usePrivy();
   const router = useRouter();
 
   useEffect(() => {
     if (ready && !authenticated) router.replace('/');
   }, [ready, authenticated, router]);
 
-  const address = (
-    wallets.find((w) => w.walletClientType === 'privy')?.address ?? user?.wallet?.address
-  )?.toLowerCase();
+  const address = useEmbeddedAddress();
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.memberStats(address ?? ''),

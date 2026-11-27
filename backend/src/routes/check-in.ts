@@ -9,6 +9,7 @@ import { mintQueue } from '../lib/queue';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
 import { findSessionOr404, closingSessions } from '../lib/session';
+import { findOrCreateMember } from '../services/identity.service';
 
 const router = Router();
 
@@ -89,11 +90,7 @@ router.post(
     }
 
     // 6. Find or create the member record
-    const member = await prisma.member.upsert({
-      where: { walletAddress: privyWalletAddress },
-      update: {},
-      create: { walletAddress: privyWalletAddress, privyUserId: req.user!.privyUserId },
-    });
+    const member = await findOrCreateMember(privyWalletAddress, req.user!.privyUserId);
 
     // 7. Create the check-in record.
     //    @@unique([memberId, sessionId]) prevents duplicate check-ins.

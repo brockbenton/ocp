@@ -62,6 +62,8 @@ backend/
   each request (no role cache). `test/officer.access.test.ts` fails if a new session or
   admin route is not covered.
 - `req.user` is typed as `{ privyUserId: string, walletAddress: string }`
+- `walletAddress` is always the Privy **embedded** wallet (`services/identity.service.ts`);
+  never `user.wallet`, which can be a linked external wallet
 
 ## QR Payload Spec
 ```ts

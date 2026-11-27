@@ -82,9 +82,9 @@ Design source of truth: `MASTER_PLAN.md` → Phase 5 + Security Considerations (
 |---|---|---|
 | Social / passkey login with embedded wallet | ✅ | Privy: email, Google, passkey. Every login gets a wallet — no MetaMask needed |
 | Server-side token verification | ✅ | `authMiddleware` verifies the Privy ID token on every authed request (`backend/src/middleware/auth.ts`) |
-| Requests without a wallet rejected | ✅ | `403 NO_WALLET` |
+| Requests without a wallet rejected | ✅ | `403 NO_WALLET` when the account has no embedded wallet |
 | Wedged-session self-heal | ✅ | `SessionRecoveryGate` recovers a stuck Privy session once per tab |
-| Identity pinned to the embedded wallet | ⚠️ → 🟡 | Today identity = `user.wallet` (first linked wallet); linking MetaMask could split a member's record. v1 pins identity to the stored embedded-wallet address (#74) |
+| Identity pinned to the embedded wallet | ✅ | Identity is the Privy embedded wallet stored on the member record (or the primary embedded wallet before one exists). Linked external wallets are never identities; an account with none gets `403 NO_WALLET` (#74) |
 | Never enable Privy delegated actions / session signers | 🟡 | Hard rule — otherwise the backend *could* sign votes for members (#70) |
 | Readable signing prompts | 🟡 | Typed EIP-712 structs per action with human-readable fields; Privy confirmation UI kept on (#70) |
 | Sybil resistance | ⚠️ / 🔵 | Nothing stops one person holding several accounts. v1 relies on attendee verification, two-officer sign-off and anomaly monitoring, **not** weekly Rep budgets or decay. `.edu` gating (one inbox, not one person) is v2 (#50, #71) |

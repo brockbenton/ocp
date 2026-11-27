@@ -3,7 +3,8 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useMemo, useState } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
+import { useEmbeddedAddress } from '@/hooks/useProfile';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -69,8 +70,7 @@ const MORE_TILE_CLASSES =
   'flex h-full min-h-[172px] flex-col items-center justify-center gap-2 rounded-tile border border-dashed border-line-strong bg-raised text-content-secondary transition hover:border-content-secondary';
 
 export default function VaultPage() {
-  const { ready, authenticated, user } = usePrivy();
-  const { wallets } = useWallets();
+  const { ready, authenticated } = usePrivy();
   const router = useRouter();
   const [semester, setSemester] = useState<string>(ALL_SEMESTERS);
   const [sortDesc, setSortDesc] = useState(true);
@@ -82,9 +82,7 @@ export default function VaultPage() {
     if (ready && !authenticated) router.replace('/');
   }, [ready, authenticated, router]);
 
-  const address = (
-    wallets.find((w) => w.walletClientType === 'privy')?.address ?? user?.wallet?.address
-  )?.toLowerCase();
+  const address = useEmbeddedAddress();
 
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.memberVault(address ?? ''),

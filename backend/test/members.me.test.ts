@@ -12,7 +12,10 @@ const authState = vi.hoisted(() => ({
 vi.mock('@privy-io/server-auth', () => ({
   PrivyClient: class {
     async getUser() {
-      return { id: `did:privy:${authState.wallet}`, wallet: { address: authState.wallet } };
+      return {
+        id: `did:privy:${authState.wallet}`,
+        linkedAccounts: [{ type: 'wallet', walletClientType: 'privy', address: authState.wallet }],
+      };
     }
     async getUsers() {
       return [];

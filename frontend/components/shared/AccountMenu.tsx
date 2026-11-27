@@ -2,10 +2,10 @@
 
 import type { ComponentType } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { usePrivy, useWallets } from '@privy-io/react-auth';
+import { usePrivy } from '@privy-io/react-auth';
 import Link from 'next/link';
 import { useAdminMe } from '@/hooks/useAdminMe';
-import { useProfile } from '@/hooks/useProfile';
+import { useProfile, useEmbeddedAddress } from '@/hooks/useProfile';
 import { shortenAddress } from '@/lib/address';
 import { Avatar, Button, CopyChip } from '@/components/ui';
 import type { IconProps } from '@/components/ui/icons';
@@ -51,11 +51,10 @@ const MENU_ITEM_DESTRUCTIVE = 'text-status-neg hover:bg-status-neg-bg';
 // wallets that actually hold the on-chain ADMIN_ROLE (probed via /admin/me).
 export default function AccountMenu() {
   const { ready, authenticated, user, login, logout } = usePrivy();
-  const { wallets } = useWallets();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const address = wallets.find((w) => w.walletClientType === 'privy')?.address ?? user?.wallet?.address;
+  const address = useEmbeddedAddress();
   const { data: profile } = useProfile();
 
   useEffect(() => {
