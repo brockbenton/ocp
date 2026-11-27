@@ -1,10 +1,9 @@
 import { Router, Request, Response } from 'express';
-import { isAddress } from 'viem';
 import { authMiddleware } from '../middleware/auth';
 import { adminMiddleware } from '../middleware/admin';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
-import { grantAdminRoleOnChain, revokeAdminRoleOnChain, setBaseCidOnChain } from '../services/relay.service';
+import { listOfficers } from '../services/officers.service';
 import { buildMemberStats, buildAdminOverview } from '../services/stats.service';
 import { publishSemesterMetadata } from '../services/ipfs.service';
 import { findSessionOr404 } from '../lib/session';
@@ -188,16 +187,22 @@ router.get('/export/members', async (_req: Request, res: Response): Promise<void
   res.send(rows.join('\r\n'));
 });
 
-// ── GET /api/v1/admin/roles — list active admin roles ─────────────────────
+// ── GET /api/v1/admin/roles — officers, verified on-chain ─────────────────
+// Read-only on purpose: role changes need governance approval (#82), so the API
+// has no route that grants or revokes a role.
 
-router.get('/roles', async (_req: Request, res: Response): Promise<void> => {
-  const roles = await prisma.adminRole.findMany({
-    where: { revokedAt: null },
-    orderBy: { grantedAt: 'desc' },
-  });
+router.get('/roles', async (req: Request, res: Response): Promise<void> => {
+  let officers: Awaited<ReturnType<typeof listOfficers>>;
+  try {
+    officers = await listOfficers(req.user!.walletAddress);
+  } catch (err) {
+    logger.error({ msg: 'Officer reconciliation failed', err: (err as Error).message });
+    res.status(503).json({ error: { code: 'ROLE_CHECK_FAILED', message: 'Could not verify officer roles' } });
+    return;
+  }
 
   res.json({
-    data: roles.map((r) => ({
+    data: officers.map((r) => ({
       id: r.id,
       walletAddress: r.walletAddress,
       grantedBy: r.grantedBy,
@@ -205,139 +210,6 @@ router.get('/roles', async (_req: Request, res: Response): Promise<void> => {
       revokedAt: null,
     })),
   });
-});
-
-// ── POST /api/v1/admin/roles — grant ADMIN_ROLE on-chain + DB ─────────────
-
-router.post('/roles', async (req: Request, res: Response): Promise<void> => {
-  if (!process.env.DEFAULT_ADMIN_PRIVATE_KEY) {
-    res.status(503).json({
-      error: { code: 'NOT_CONFIGURED', message: 'Set DEFAULT_ADMIN_PRIVATE_KEY to enable role management' },
-    });
-    return;
-  }
-
-  const { walletAddress } = req.body as { walletAddress: unknown };
-
-  if (typeof walletAddress !== 'string' || !isAddress(walletAddress)) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid Ethereum address' } });
-    return;
-  }
-
-  const normalized = walletAddress.toLowerCase();
-
-  const existing = await prisma.adminRole.findFirst({
-    where: { walletAddress: normalized, revokedAt: null },
-  });
-  if (existing) {
-    res.status(409).json({ error: { code: 'CONFLICT', message: 'Wallet already has ADMIN_ROLE' } });
-    return;
-  }
-
-  let txHash: `0x${string}`;
-  try {
-    txHash = await grantAdminRoleOnChain(normalized as `0x${string}`);
-  } catch (err) {
-    logger.error({ msg: 'grantRole on-chain failed', err: (err as Error).message });
-    res.status(500).json({ error: { code: 'CHAIN_ERROR', message: 'Failed to grant role on-chain' } });
-    return;
-  }
-
-  let role: Awaited<ReturnType<typeof prisma.adminRole.create>>;
-  try {
-    role = await prisma.adminRole.create({
-      data: {
-        walletAddress: normalized,
-        grantedBy: req.user!.walletAddress,
-      },
-    });
-  } catch (err) {
-    // On-chain grant succeeded but DB write failed — log the desync so it can be reconciled.
-    logger.error({
-      msg: 'ADMIN_ROLE granted on-chain but DB write failed — DESYNC',
-      wallet: normalized,
-      txHash,
-      err: (err as Error).message,
-    });
-    res.status(500).json({ error: { code: 'DB_ERROR', message: 'Role granted on-chain but failed to record in DB. Contact an operator.' } });
-    return;
-  }
-
-  logger.info({ msg: 'ADMIN_ROLE granted', wallet: normalized, txHash, grantedBy: req.user!.walletAddress });
-
-  res.status(201).json({
-    data: {
-      id: role.id,
-      walletAddress: role.walletAddress,
-      grantedBy: role.grantedBy,
-      grantedAt: role.grantedAt.toISOString(),
-      revokedAt: null,
-      txHash,
-    },
-  });
-});
-
-// ── DELETE /api/v1/admin/roles/:walletAddress — revoke ADMIN_ROLE ─────────
-
-router.delete('/roles/:walletAddress', async (req: Request, res: Response): Promise<void> => {
-  if (!process.env.DEFAULT_ADMIN_PRIVATE_KEY) {
-    res.status(503).json({
-      error: { code: 'NOT_CONFIGURED', message: 'Set DEFAULT_ADMIN_PRIVATE_KEY to enable role management' },
-    });
-    return;
-  }
-
-  const rawWallet = req.params.walletAddress;
-  if (!isAddress(rawWallet)) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'Invalid Ethereum address' } });
-    return;
-  }
-
-  const normalized = rawWallet.toLowerCase();
-
-  const role = await prisma.adminRole.findFirst({
-    where: { walletAddress: normalized, revokedAt: null },
-  });
-  if (!role) {
-    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'No active ADMIN_ROLE found for this wallet' } });
-    return;
-  }
-
-  // Prevent an admin from revoking their own role (avoids lockout)
-  if (normalized === req.user!.walletAddress.toLowerCase()) {
-    res.status(400).json({ error: { code: 'BAD_REQUEST', message: 'You cannot revoke your own admin role' } });
-    return;
-  }
-
-  let txHash: `0x${string}`;
-  try {
-    txHash = await revokeAdminRoleOnChain(normalized as `0x${string}`);
-  } catch (err) {
-    logger.error({ msg: 'revokeRole on-chain failed', err: (err as Error).message });
-    res.status(500).json({ error: { code: 'CHAIN_ERROR', message: 'Failed to revoke role on-chain' } });
-    return;
-  }
-
-  try {
-    await prisma.adminRole.update({
-      where: { id: role.id },
-      data: { revokedAt: new Date() },
-    });
-  } catch (err) {
-    // On-chain revoke succeeded but DB write failed — log the desync so it can be reconciled.
-    logger.error({
-      msg: 'ADMIN_ROLE revoked on-chain but DB update failed — DESYNC',
-      wallet: normalized,
-      txHash,
-      err: (err as Error).message,
-    });
-    res.status(500).json({ error: { code: 'DB_ERROR', message: 'Role revoked on-chain but failed to update DB. Contact an operator.' } });
-    return;
-  }
-
-  logger.info({ msg: 'ADMIN_ROLE revoked', wallet: normalized, txHash, revokedBy: req.user!.walletAddress });
-
-  res.json({ data: { txHash } });
 });
 
 // ── POST /api/v1/admin/ipfs/publish ──────────────────────────────────────
@@ -348,16 +220,10 @@ router.post('/ipfs/publish', async (_req: Request, res: Response): Promise<void>
   try {
     const result = await publishSemesterMetadata();
 
-    // Close the loop: set the freshly pinned directory CID as the contract base
-    // CID so uri(id) resolves (only when actually pinned and a DEFAULT_ADMIN key
-    // is configured for the on-chain write).
-    let setBaseCidTx: string | null = null;
-    if (!result.dryRun && result.baseCid && process.env.DEFAULT_ADMIN_PRIVATE_KEY) {
-      setBaseCidTx = await setBaseCidOnChain(result.baseCid);
-    }
-
-    logger.info({ msg: 'IPFS metadata publish requested', staged: result.staged, baseCid: result.baseCid, dryRun: result.dryRun, setBaseCidTx });
-    res.json({ data: { ...result, setBaseCidTx } });
+    // The backend holds no key that can change the registry's base CID (#82), so a
+    // newly pinned CID is applied on-chain separately (smart-contract/DEPLOY.md).
+    logger.info({ msg: 'IPFS metadata publish requested', staged: result.staged, baseCid: result.baseCid, dryRun: result.dryRun });
+    res.json({ data: { ...result, baseCidNeedsOnchainUpdate: result.baseCid !== null } });
   } catch (err) {
     logger.error({ msg: 'IPFS metadata publish failed', err: (err as Error).message });
     res.status(500).json({ error: { code: 'IPFS_ERROR', message: 'Failed to publish metadata' } });

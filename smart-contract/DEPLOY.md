@@ -135,3 +135,25 @@ forge verify-contract <address> AttendanceRegistry \
 - Roles granted (relay wallet, admin wallets)
 - Basescan link
 - Any issues encountered
+
+---
+
+## Role changes and base CID (legacy registry)
+
+The backend holds no `DEFAULT_ADMIN_ROLE` key and has no route that changes roles (#82). Until
+the Phase 5 governance contracts are live, whoever holds `DEFAULT_ADMIN_ROLE` makes these changes
+from their own machine, never from a server. Use a hardware wallet or an encrypted Foundry
+keystore (`cast wallet import`), not a raw key on the command line.
+
+```bash
+# Grant or revoke an officer (use revokeRole to remove one)
+cast send <CONTRACT_ADDRESS> "grantRole(bytes32,address)" $(cast keccak "ADMIN_ROLE") <WALLET> \
+  --rpc-url <RPC_URL> --account <keystore-name>
+
+# Apply the base CID returned by "publish metadata"
+cast send <CONTRACT_ADDRESS> "setBaseCid(string)" <CID> \
+  --rpc-url <RPC_URL> --account <keystore-name>
+```
+
+After `setBaseCid`, set `CONTRACT_BASE_CID` on the backend to the same CID and restart it: the
+API builds metadata URIs from that variable, not from the contract.

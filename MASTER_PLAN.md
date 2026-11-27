@@ -200,7 +200,7 @@ Anti-cheat properties:
   - `Official Member` — ≥ 75% attendance
   - `Founding Member` — present for X% of all-time meetings (admin-granted)
 - [x] Export: CSV export of attendance data per session or per member
-- [x] Admin role management: grant/revoke ADMIN_ROLE on-chain from dashboard
+- [x] Admin role management: grant/revoke ADMIN_ROLE on-chain from dashboard — **removed (#82)**: role changes need governance approval; the dashboard lists officers only
 - [x] Attendance API endpoint: `GET /api/v1/members` → JSON of all members + stats
 
 ---
