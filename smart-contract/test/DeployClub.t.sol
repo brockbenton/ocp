@@ -53,6 +53,29 @@ contract DeployClubTest is ClubBase {
         this.deployExternal(_config(), legacy);
     }
 
+    function test_deploy_rejectsADeployerWithARole() public {
+        _freezeLegacy(legacy, address(this));
+
+        Config memory config = _config();
+        config.relay = address(this);
+        vm.expectRevert(DeployerCannotHoldRole.selector);
+        this.deployExternal(config, legacy);
+
+        config = _config();
+        config.officers[1] = address(this);
+        vm.expectRevert(DeployerCannotHoldRole.selector);
+        this.deployExternal(config, legacy);
+    }
+
+    function test_import_rejectsAZeroBatchSize() public {
+        vm.expectRevert(InvalidBatchSize.selector);
+        this.importExternal(legacy, 0);
+    }
+
+    function importExternal(Legacy memory input, uint256 batchSize) external {
+        _importLegacy(rep, input, batchSize);
+    }
+
     function test_deploy_requiresTheRoleHolderList() public {
         legacy.roleHolders = new address[](0);
         vm.expectRevert(LegacyNotListed.selector);
@@ -148,8 +171,8 @@ contract DeployClubTest is ClubBase {
     }
 
     function test_defaultBatchSize_scalesWithSessionCount() public pure {
-        assertEq(_defaultBatchSize(0), 100);
-        assertEq(_defaultBatchSize(6), 100);
+        assertEq(_defaultBatchSize(0), 75);
+        assertEq(_defaultBatchSize(6), 75);
         assertEq(_defaultBatchSize(30), 20);
         assertEq(_defaultBatchSize(600), 1);
         assertEq(_defaultBatchSize(5000), 1);

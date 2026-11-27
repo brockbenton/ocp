@@ -57,6 +57,22 @@ contract AttendanceRegistry2Test is ClubBase {
         new AttendanceRegistry2(address(timelock), address(rep), duplicate, relay, "c");
     }
 
+    function test_officerRole_rejectsAccountsNobodyControls() public {
+        bytes32 officerRole = registry.ADMIN_ROLE();
+        address[2] memory invalid = [address(0), address(timelock)];
+        for (uint256 i = 0; i < invalid.length; ++i) {
+            vm.prank(address(timelock));
+            vm.expectRevert(abi.encodeWithSelector(IAttendanceRegistry2.InvalidOfficer.selector, invalid[i]));
+            registry.grantRole(officerRole, invalid[i]);
+        }
+
+        address[] memory officers = new address[](2);
+        officers[0] = officerA;
+        officers[1] = address(timelock);
+        vm.expectRevert(abi.encodeWithSelector(IAttendanceRegistry2.InvalidOfficer.selector, address(timelock)));
+        new AttendanceRegistry2(address(timelock), address(rep), officers, relay, "cid");
+    }
+
     function test_constructor_rejectsZeroAddresses() public {
         address[] memory officers = _config().officers;
         vm.expectRevert(IAttendanceRegistry2.ZeroAddress.selector);

@@ -8,11 +8,16 @@ import {ClubDeployment} from "./ClubDeployment.sol";
 
 /// @notice Shared input reading for the bootstrap scripts.
 abstract contract ClubScript is Script, ClubDeployment {
+    error LegacyDataMismatch(address exported, address configured);
+
     /// @dev Reads `LEGACY_REGISTRY` and the JSON file named by `LEGACY_DATA`
-    ///      (`{"roleHolders": [], "sessionIds": [], "accounts": []}`).
+    ///      (`{"registry": "0x..", "roleHolders": [], "sessionIds": [], "accounts": []}`).
     function _readLegacy() internal view returns (Legacy memory legacy) {
         string memory json = vm.readFile(vm.envString("LEGACY_DATA"));
         legacy.registry = AttendanceRegistry(vm.envAddress("LEGACY_REGISTRY"));
+        // An export of another registry would pass the freeze checks while proving nothing.
+        address exported = vm.parseJsonAddress(json, ".registry");
+        if (exported != address(legacy.registry)) revert LegacyDataMismatch(exported, address(legacy.registry));
         legacy.roleHolders = vm.parseJsonAddressArray(json, ".roleHolders");
         legacy.sessionIds = vm.parseJsonUintArray(json, ".sessionIds");
         legacy.accounts = vm.parseJsonAddressArray(json, ".accounts");

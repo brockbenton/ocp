@@ -40,8 +40,10 @@ abstract contract ClubDeployment {
         ClubGovernor governor;
     }
 
-    /// @dev A page of `balanceOfBatch` reads that keeps an import tx well under 10M gas.
+    /// @dev Together these keep an import tx under 10M gas: each account costs storage writes
+    ///      as well as one `balanceOfBatch` read per session.
     uint256 internal constant IMPORT_READS_PER_TX = 600;
+    uint256 internal constant MAX_IMPORT_ACCOUNTS_PER_TX = 75;
 
     error LegacyNotListed();
     error LegacyRoleStillHeld(address holder);
@@ -49,6 +51,8 @@ abstract contract ClubDeployment {
     error AccountNotImported(address account);
     error BadGuardian();
     error RelayIsOfficer();
+    error DeployerCannotHoldRole();
+    error InvalidBatchSize();
     error HandoffIncomplete(string check);
 
     /// @dev The defaults in the master plan. Half-life, threshold and floor are provisional.
@@ -119,7 +123,9 @@ abstract contract ClubDeployment {
     {
         _requireLegacyFrozen(legacy);
         if (config.guardian == deployer || config.guardian == config.relay) revert BadGuardian();
+        if (config.relay == deployer) revert DeployerCannotHoldRole();
         for (uint256 i = 0; i < config.officers.length; ++i) {
+            if (config.officers[i] == deployer) revert DeployerCannotHoldRole();
             if (config.officers[i] == config.relay) revert RelayIsOfficer();
             if (config.officers[i] == config.guardian) revert BadGuardian();
         }
@@ -151,11 +157,12 @@ abstract contract ClubDeployment {
     function _defaultBatchSize(uint256 sessionCount) internal pure returns (uint256) {
         uint256 size = IMPORT_READS_PER_TX / (sessionCount == 0 ? 1 : sessionCount);
         if (size == 0) return 1;
-        return size > 100 ? 100 : size;
+        return size > MAX_IMPORT_ACCOUNTS_PER_TX ? MAX_IMPORT_ACCOUNTS_PER_TX : size;
     }
 
     /// @notice Imports every listed account not yet imported, so it can be re-run.
     function _importLegacy(ClubRep rep, Legacy memory legacy, uint256 batchSize) internal {
+        if (batchSize == 0) revert InvalidBatchSize();
         address[] memory pending = new address[](legacy.accounts.length);
         uint256 count = 0;
         for (uint256 i = 0; i < legacy.accounts.length; ++i) {
@@ -198,6 +205,8 @@ abstract contract ClubDeployment {
         _check(!timelock.hasRole(proposer, deployer), "deployer cannot propose");
         _check(!timelock.hasRole(canceller, deployer), "deployer cannot cancel");
         _check(!club.registry.hasRole(admin, deployer), "deployer is not registry admin");
+        _check(!club.registry.hasRole(club.registry.ADMIN_ROLE(), deployer), "deployer is not an officer");
+        _check(!club.registry.hasRole(club.registry.RELAY_ROLE(), deployer), "deployer is not the relay");
         _check(!club.rep.hasRole(admin, deployer), "deployer is not Rep admin");
         _check(timelock.hasRole(admin, address(timelock)), "Timelock administers itself");
         _check(club.registry.hasRole(admin, address(timelock)), "Timelock administers registry");

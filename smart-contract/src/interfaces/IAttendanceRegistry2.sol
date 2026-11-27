@@ -63,6 +63,7 @@ interface IAttendanceRegistry2 {
     error ZeroAddress();
     error AdminLocked();
     error OfficerFloor();
+    error InvalidOfficer(address account);
     error InvalidDate();
     error InvalidMaxAttendees();
     error SessionAlreadyExists();

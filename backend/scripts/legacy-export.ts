@@ -31,11 +31,17 @@ async function main(): Promise<void> {
   const chunk = BigInt(chunkArg ?? '2000');
   const latest = await client.getBlockNumber();
 
+  // A start block after the deployment would silently leave history out.
+  const first = BigInt(deployBlock);
+  if (first > 0n && (await client.getCode({ address: registry, blockNumber: first - 1n }))) {
+    throw new Error('The registry already exists before that block: pass its real deploy block');
+  }
+
   const sessionIds = new Set<bigint>();
   const accounts = new Set<string>();
   const roleHolders = new Set<string>();
 
-  for (let from = BigInt(deployBlock); from <= latest; from += chunk) {
+  for (let from = first; from <= latest; from += chunk) {
     const toBlock = from + chunk - 1n > latest ? latest : from + chunk - 1n;
     const logs = await client.getLogs({
       address: registry,

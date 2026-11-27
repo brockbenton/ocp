@@ -126,6 +126,22 @@ contract GasTest is GovernanceBase {
         _record("importLegacy_30accounts_20sessions");
     }
 
+    function test_gas_importBatch_largest() public {
+        // Six meetings is where the default batch costs the most.
+        Legacy memory legacy = _emptyLegacy();
+        address[] memory accounts = _members(_defaultBatchSize(6));
+        legacy.sessionIds = new uint256[](6);
+        for (uint256 id = 1; id <= 6; ++id) {
+            _legacySession(id, accounts);
+            legacy.sessionIds[id - 1] = id;
+        }
+        legacy.accounts = accounts;
+        _freezeLegacy(legacy, address(this));
+        _deploy(legacy);
+        rep.importLegacy(accounts, legacy.sessionIds);
+        _record("importLegacy_75accounts_6sessions");
+    }
+
     /// @dev Historical reads are a binary search plus one decay, whatever the history length.
     function test_gas_historicalReads_boundedByLogOfHistory() public {
         for (uint256 i = 0; i < 8; ++i) {

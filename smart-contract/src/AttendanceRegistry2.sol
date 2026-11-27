@@ -316,6 +316,8 @@ contract AttendanceRegistry2 is IAttendanceRegistry2, ERC1155, AccessControlEnum
 
     function _grantRole(bytes32 role, address account) internal override returns (bool) {
         if (role == DEFAULT_ADMIN_ROLE && account != TIMELOCK) revert AdminLocked();
+        // Neither can act as a second person, yet each would count toward the officer floor.
+        if (role == ADMIN_ROLE && (account == address(0) || account == TIMELOCK)) revert InvalidOfficer(account);
         return super._grantRole(role, account);
     }
 

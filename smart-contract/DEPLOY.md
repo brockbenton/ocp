@@ -169,24 +169,26 @@ API builds metadata URIs from that variable, not from the contract.
 Sign with an encrypted keystore (`--account <name>`). Variables are listed in `.env.example`.
 Order matters; each script refuses to run if the step before it is incomplete.
 
-1. **Export legacy history** (read-only):
+1. **Stop the old backend** and make no more session or role changes. Anything written after the
+   export is left out of the freeze checks and the import.
+2. **Export legacy history** (read-only):
    `cd backend && npx tsx scripts/legacy-export.ts <rpc-url> <legacy-registry> <deploy-block> ../smart-contract/data/legacy.json`.
    Review the role holders, sessions and accounts it lists. The freeze and import checks are only
    as complete as this file.
-2. **Freeze the legacy registry** (IRREVERSIBLE; signed by its `DEFAULT_ADMIN_ROLE` wallet). Stop
-   the old backend first, since it can no longer mint or create sessions afterwards:
+3. **Freeze the legacy registry** (IRREVERSIBLE; signed by its `DEFAULT_ADMIN_ROLE` wallet):
    `forge script script/FreezeLegacy.s.sol --rpc-url <RPC> --account <legacy-admin> --broadcast --slow`
-3. **Deploy** (`RELAY_WALLET`, `GUARDIAN_SAFE`, `OFFICERS`, `BASE_CID`):
+4. **Deploy** (`RELAY_WALLET`, `GUARDIAN_SAFE`, `OFFICERS`, `BASE_CID`). Use a deployer wallet that
+   is neither an officer nor the relay:
    `forge script script/DeployClub.s.sol --rpc-url <RPC> --account <deployer> --broadcast --slow --verify`
-4. **Import** with the printed `CLUB_*` addresses:
+5. **Import** with the printed `CLUB_*` addresses:
    `forge script script/ImportLegacy.s.sol --rpc-url <RPC> --account <deployer> --broadcast --slow`
    Check a sample of balances: each is 10 Rep per legacy token, decayed from the deploy time.
    Re-running skips imported accounts.
-5. **Finalize and hand off** (IRREVERSIBLE): run step 4 again with `FINALIZE=true`. The script
+6. **Finalize and hand off** (IRREVERSIBLE): run step 5 again with `FINALIZE=true`. The script
    asserts that the deployer holds no role and prints confirmation. Proposals are rejected until
    this has happened.
-6. Record the addresses in `addresses.json`, then update the backend and frontend environment.
-7. After the first officer-election proposal executes, the guardian renounces `CANCELLER_ROLE`.
+7. Record the addresses in `addresses.json`, then update the backend and frontend environment.
+8. After the first officer-election proposal executes, the guardian renounces `CANCELLER_ROLE`.
    After 120 days anyone can call `ClubTimelock.expireGuardian()`.
 
 ## Incident runbook (Phase 5)
