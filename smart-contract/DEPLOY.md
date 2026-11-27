@@ -157,3 +157,54 @@ cast send <CONTRACT_ADDRESS> "setBaseCid(string)" <CID> \
 
 After `setBaseCid`, set `CONTRACT_BASE_CID` on the backend to the same CID and restart it: the
 API builds metadata URIs from that variable, not from the contract.
+
+---
+
+## Phase 5 club DAO bootstrap
+
+> Not yet run on any public network. Do not run it before the review gates in the master plan
+> (collusion threat model, half-life and governance parameters, inactivity recovery, audit) are
+> signed off. Mainnet needs an explicit owner go-ahead.
+
+Sign with an encrypted keystore (`--account <name>`). Variables are listed in `.env.example`.
+Order matters; each script refuses to run if the step before it is incomplete.
+
+1. **Stop the old backend** and make no more session or role changes. Anything written after the
+   export is left out of the freeze checks and the import.
+2. **Export legacy history** (read-only):
+   `cd backend && npx tsx scripts/legacy-export.ts <rpc-url> <legacy-registry> <deploy-block> ../smart-contract/data/legacy.json`.
+   Review the role holders, sessions and accounts it lists. The freeze and import checks are only
+   as complete as this file.
+3. **Freeze the legacy registry** (IRREVERSIBLE; signed by its `DEFAULT_ADMIN_ROLE` wallet):
+   `forge script script/FreezeLegacy.s.sol --rpc-url <RPC> --account <legacy-admin> --broadcast --slow`
+4. **Deploy** (`RELAY_WALLET`, `GUARDIAN_SAFE`, `OFFICERS`, `BASE_CID`). Use a deployer wallet that
+   is neither an officer nor the relay:
+   `forge script script/DeployClub.s.sol --rpc-url <RPC> --account <deployer> --broadcast --slow --verify`
+5. **Import** with the printed `CLUB_*` addresses:
+   `forge script script/ImportLegacy.s.sol --rpc-url <RPC> --account <deployer> --broadcast --slow`
+   Check a sample of balances: each is 10 Rep per legacy token, decayed from the deploy time.
+   Re-running skips imported accounts.
+6. **Finalize and hand off** (IRREVERSIBLE): run step 5 again with `FINALIZE=true`. The script
+   asserts that the deployer holds no role and prints confirmation. Proposals are rejected until
+   this has happened.
+7. Record the addresses in `addresses.json`, then update the backend and frontend environment.
+8. After the first officer-election proposal executes, the guardian renounces `CANCELLER_ROLE`.
+   After 120 days anyone can call `ClubTimelock.expireGuardian()`.
+
+## Incident runbook (Phase 5)
+
+- **Relay key leaked:** any officer calls `pauseMinting()` (14 days, once per officer per 30
+  days). Reject affected Pending sessions with `rejectSessionRep`. Pass a proposal revoking and
+  granting `RELAY_ROLE`; delay (1 day) + vote (7 days) + Timelock (2 days) fits inside one pause.
+  Pause does **not** block confirmation or credit of sessions already Pending.
+- **Backend censoring or down:** votes can be submitted by anyone. A member copies the signed
+  vote from the app and an officer submits it with their funded wallet
+  (`castVoteBySig(proposalId, support, voter, signature)`).
+- **Wrongly awarded Rep:** a proposal calls `ClubRep.revoke(account, reasonURI)`; `unblock`
+  lets the account earn again (revoked Rep is not restored).
+- **Officer lost or compromised:** a proposal grants the replacement first, then revokes. The
+  registry never allows fewer than two officers.
+- **Limits:** two colluding officers can unpause each other, and governance captured with
+  fraudulent Rep can defeat a removal. See `SECURITY.md`.
+- **Wallet funding:** officers and the relay each need a little Base ETH. Keep the relay
+  balance small; the backend warns below `RELAY_MIN_BALANCE_ETH`. Top up from a cold wallet.
