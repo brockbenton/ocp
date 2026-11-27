@@ -81,6 +81,7 @@ export const REGISTRY_ABI = [
   {"type":"error","name":"ERC1155MissingApprovalForAll","inputs":[{"name":"operator","type":"address","internalType":"address"},{"name":"owner","type":"address","internalType":"address"}]},
   {"type":"error","name":"InvalidDate","inputs":[]},
   {"type":"error","name":"InvalidMaxAttendees","inputs":[]},
+  {"type":"error","name":"InvalidOfficer","inputs":[{"name":"account","type":"address","internalType":"address"}]},
   {"type":"error","name":"InvalidPage","inputs":[]},
   {"type":"error","name":"InvalidRecipient","inputs":[]},
   {"type":"error","name":"MintingIsPaused","inputs":[{"name":"pausedUntil","type":"uint64","internalType":"uint64"}]},
