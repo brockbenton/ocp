@@ -95,16 +95,32 @@ type QRPayload = {
 - Trusting member-supplied wallet addresses for minting without signature verification
 
 ## Environment Variables
+Every variable read by `src/`, `scripts/` or `prisma/seed.ts` must be listed here and in
+`.env.example` (a test enforces the latter).
 ```
+# Required at startup
 DATABASE_URL
 REDIS_URL
 ALCHEMY_API_KEY
 CONTRACT_ADDRESS
 RELAY_PRIVATE_KEY          # Wallet with RELAY_ROLE
-ADMIN_SIGNER_PRIVATE_KEY   # Wallet that signs QR payloads
+ADMIN_SIGNER_PRIVATE_KEY   # Wallet with ADMIN_ROLE; signs QR payloads
 PRIVY_APP_ID
 PRIVY_APP_SECRET
+CORS_ORIGINS               # Comma-separated frontend origins allowed by CORS
+
+# Optional
+CHAIN_ID                   # 8453 (Base Mainnet) or 84532 (Base Sepolia). Default: 84532
 QR_TTL_MS                  # Default: 600000 (10 min)
-CHAIN_ID                   # 8453 (Base Mainnet) or 84532 (Base Sepolia)
+PORT                       # Default: 3001
+NODE_ENV                   # "production" switches to JSON logs at info level
+PUBLIC_API_URL             # Base URL for art/badge links. Default: empty (relative URLs)
+PINATA_JWT                 # Default: unset (metadata publish is a dry run)
+CONTRACT_BASE_CID          # Default: unset (metadata URIs are null)
+DEFAULT_SEMESTER_ART_CID   # Default: placeholder CID
+SEMESTER_ART_CIDS          # JSON object {semester: cid}. Default: none
+OFFICIAL_MEMBER_THRESHOLD  # Default: 75
+RELAY_MIN_BALANCE_ETH      # Default: 0.005
+DEFAULT_ADMIN_PRIVATE_KEY  # LEGACY, holds DEFAULT_ADMIN_ROLE (#55, #82). Default: unset
 ```
 

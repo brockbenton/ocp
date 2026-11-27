@@ -2,7 +2,8 @@
 // (Express 4 does not do this natively). Must load before routers.
 import 'express-async-errors';
 import express from 'express';
-import cors from 'cors';
+import cors, { type CorsOptions } from 'cors';
+import helmet from 'helmet';
 import sessionsRouter from './routes/sessions';
 import checkInRouter from './routes/check-in';
 import adminRouter from './routes/admin';
@@ -10,11 +11,42 @@ import membersRouter from './routes/members';
 import assetsRouter from './routes/art';
 import logger from './lib/logger';
 
+/**
+ * Parses CORS_ORIGINS (comma-separated) into an exact-match allowlist. A trailing
+ * slash is dropped because browsers never send one in the Origin header.
+ */
+export function parseCorsOrigins(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
+function corsOptions(): CorsOptions {
+  return {
+    // An empty list allows no cross-origin caller at all, never "any origin".
+    origin: parseCorsOrigins(process.env.CORS_ORIGINS),
+    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Authorization', 'Content-Type'],
+  };
+}
+
 /** Builds the Express app (no listener / worker) so tests can import it directly. */
 export function createApp() {
   const app = express();
 
-  app.use(cors());
+  app.disable('x-powered-by');
+  app.use(
+    helmet({
+      // The API serves JSON and standalone SVG images, never HTML.
+      contentSecurityPolicy: {
+        useDefaults: false,
+        directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
+      },
+      frameguard: { action: 'deny' },
+    }),
+  );
+  app.use(cors(corsOptions()));
   app.use(express.json());
 
   app.use('/api/v1/sessions', sessionsRouter);
