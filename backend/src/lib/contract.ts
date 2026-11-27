@@ -8,6 +8,9 @@ export const chain: Chain = chainId === 8453 ? base : baseSepolia;
 const alchemyNetwork = chainId === 8453 ? 'base-mainnet' : 'base-sepolia';
 const rpcUrl = `https://${alchemyNetwork}.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`;
 
+/** The registry this deployment reads, writes and binds check-in signatures to. */
+export const registryAddress = process.env.CONTRACT_ADDRESS as `0x${string}`;
+
 export const publicClient = createPublicClient({
   chain,
   transport: http(rpcUrl),

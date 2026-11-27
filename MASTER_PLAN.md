@@ -145,8 +145,8 @@ Token metadata (IPFS):
    - Backend verifies admin signature ✓
    - Backend verifies timestamp not expired ✓
    - Backend verifies member hasn't already checked in ✓
-6. Backend asks member's Privy wallet to sign:
-   "I am checking into session {sessionId} at {timestamp}"
+6. Member's Privy wallet signs EIP-712 CheckIn{sessionId, member, signedAt},
+   bound to the chain and registry (as is the QR)
 7. Member signs (one tap — Privy handles UX)
 8. Backend queues mint transaction: relay wallet → contract.mint(member, sessionId)
 9. Token lands in member's wallet. Done.

@@ -1,3 +1,5 @@
+import { baseSepolia } from 'viem/chains';
+
 // App brand — change here to rename everywhere.
 export const APP_NAME = 'Onchain Club Protocol';
 export const APP_SHORT_NAME = 'OCP';
@@ -24,9 +26,10 @@ export const GITHUB_URL = 'https://github.com/brockbenton/ocp';
 // Base Sepolia block explorer (chain 84532). Append `/address/<addr>` or `/tx/<hash>`.
 export const BASESCAN_URL = 'https://sepolia.basescan.org';
 
-// Deployed registry, from env. Deep-links to Basescan when configured; falls back
-// to the explorer home so the link is never dead.
-export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
-export const CONTRACT_EXPLORER_URL = CONTRACT_ADDRESS
-  ? `${BASESCAN_URL}/address/${CONTRACT_ADDRESS}`
-  : BASESCAN_URL;
+// The chain the registry is deployed on.
+export const CHAIN = baseSepolia;
+
+// Deployed registry, from env; next.config.mjs fails the build without it because
+// check-in signatures are bound to this address.
+export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS as `0x${string}`;
+export const CONTRACT_EXPLORER_URL = `${BASESCAN_URL}/address/${CONTRACT_ADDRESS}`;

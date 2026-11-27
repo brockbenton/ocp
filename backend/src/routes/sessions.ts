@@ -8,7 +8,7 @@ import { createSessionOnChain, closeSessionOnChain } from '../services/relay.ser
 import { isSessionClosedOnChain } from '../services/onchain.service';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
-import { findSessionOr404, semesterFor, closingSessions } from '../lib/session';
+import { findSessionOr404, semesterFor, sessionKey, currentRegistry, closingSessions } from '../lib/session';
 
 const router = Router();
 
@@ -33,9 +33,7 @@ router.post(
     const semester = semesterFor(new Date(date));
     const adminWallet = req.user!.walletAddress;
 
-    const existing = await prisma.session.findUnique({
-      where: { sessionIdOnchain: sessionId },
-    });
+    const existing = await prisma.session.findUnique({ where: sessionKey(sessionId) });
     if (existing) {
       res.status(409).json({ error: { code: 'CONFLICT', message: 'Session already exists' } });
       return;
@@ -43,6 +41,7 @@ router.post(
 
     const session = await prisma.session.create({
       data: {
+        registryAddress: currentRegistry(),
         sessionIdOnchain: sessionId,
         name,
         date: new Date(date),
@@ -138,7 +137,7 @@ router.post(
       }
 
       const updated = await prisma.session.update({
-        where: { sessionIdOnchain: sessionId },
+        where: { id: session.id },
         data: { closedAt: new Date(), closeTxHash: txHash },
       });
 

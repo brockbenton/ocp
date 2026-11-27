@@ -54,6 +54,9 @@ vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async
 import { createApp } from '../src/app';
 import prisma from '../src/lib/prisma';
 import { generateQR } from '../src/services/qr.service';
+import { currentRegistry, sessionKey } from '../src/lib/session';
+import { chain, registryAddress } from '../src/lib/contract';
+import { CHECK_IN_TYPES, checkInDomain } from '../src/lib/typedData';
 
 const app = createApp();
 type Member = Record<string, unknown>;
@@ -161,6 +164,7 @@ describe('POST /api/v1/sessions/:sessionId/close', () => {
   const create = () =>
     prisma.session.create({
       data: {
+        registryAddress: currentRegistry(),
         sessionIdOnchain: sessionId,
         name: 'Close test',
         date: new Date(),
@@ -177,7 +181,7 @@ describe('POST /api/v1/sessions/:sessionId/close', () => {
   };
   const close = () =>
     request(app).post(`/api/v1/sessions/${sessionId}/close`).set('Authorization', 'Bearer test');
-  const stored = () => prisma.session.findUniqueOrThrow({ where: { sessionIdOnchain: sessionId } });
+  const stored = () => prisma.session.findUniqueOrThrow({ where: sessionKey(sessionId) });
 
   beforeEach(async () => {
     await remove();
@@ -247,8 +251,11 @@ describe('POST /api/v1/sessions/:sessionId/close', () => {
       .send({
         qrPayload: await generateQR(sessionId),
         signedAt,
-        memberSignature: await member.signMessage({
-          message: `I am checking into session ${sessionId} as ${authState.wallet} at ${signedAt}`,
+        memberSignature: await member.signTypedData({
+          domain: checkInDomain(chain.id, registryAddress),
+          types: CHECK_IN_TYPES,
+          primaryType: 'CheckIn',
+          message: { sessionId: BigInt(sessionId), member: member.address, signedAt: BigInt(signedAt) },
         }),
       });
     expect(checkIn.status).toBe(409);

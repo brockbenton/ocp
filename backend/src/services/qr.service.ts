@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { verifyMessage } from 'viem';
-import { adminAccount } from '../lib/contract';
+import { verifyTypedData } from 'viem';
+import { adminAccount, chain, registryAddress } from '../lib/contract';
+import { CHECK_IN_TYPES, checkInDomain } from '../lib/typedData';
 import { QREnvelope, QRPayload } from '../types';
 import logger from '../lib/logger';
 
@@ -18,6 +19,30 @@ export function resolveQrTtlMs(raw: string | undefined): number {
 
 const QR_TTL_MS = resolveQrTtlMs(process.env.QR_TTL_MS);
 
+const MAX_UINT256 = 2n ** 256n - 1n;
+
+function typedQR(payload: QRPayload) {
+  return {
+    domain: checkInDomain(chain.id, registryAddress),
+    types: CHECK_IN_TYPES,
+    primaryType: 'CheckInQR',
+    message: {
+      sessionId: BigInt(payload.sessionId),
+      issuedAt: BigInt(payload.issuedAt),
+      expiresAt: BigInt(payload.expiresAt),
+      nonce: payload.nonce,
+    },
+  } as const;
+}
+
+function isSessionId(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{1,78}$/.test(value) && BigInt(value) <= MAX_UINT256;
+}
+
+function isTimestamp(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
 export async function generateQR(sessionId: string): Promise<string> {
   const issuedAt = Date.now();
   const payload: QRPayload = {
@@ -27,27 +52,29 @@ export async function generateQR(sessionId: string): Promise<string> {
     nonce: randomUUID(),
   };
 
-  const message = JSON.stringify(payload);
-  const signature = await adminAccount.signMessage({ message });
+  const signature = await adminAccount.signTypedData(typedQR(payload));
 
   const envelope: QREnvelope = { payload, signature };
   return Buffer.from(JSON.stringify(envelope)).toString('base64');
 }
 
 export async function verifyQR(encoded: string): Promise<QRPayload> {
-  let envelope: QREnvelope;
+  let envelope: Partial<QREnvelope> | null;
   try {
-    envelope = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as QREnvelope;
+    envelope = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')) as Partial<QREnvelope>;
   } catch {
     throw new Error('Malformed QR payload');
   }
 
-  const { payload, signature } = envelope;
+  const payload = envelope?.payload;
+  const signature = envelope?.signature;
 
   if (
-    typeof payload.sessionId !== 'string' ||
-    typeof payload.issuedAt !== 'number' ||
-    typeof payload.expiresAt !== 'number' ||
+    !payload ||
+    typeof signature !== 'string' ||
+    !isSessionId(payload.sessionId) ||
+    !isTimestamp(payload.issuedAt) ||
+    !isTimestamp(payload.expiresAt) ||
     typeof payload.nonce !== 'string'
   ) {
     throw new Error('Malformed QR payload');
@@ -57,11 +84,12 @@ export async function verifyQR(encoded: string): Promise<QRPayload> {
     throw new Error('QR code expired');
   }
 
-  const valid = await verifyMessage({
+  // A QR signed for another chain or registry recovers a different signer here.
+  const valid = await verifyTypedData({
+    ...typedQR(payload),
     address: adminAccount.address,
-    message: JSON.stringify(payload),
     signature,
-  });
+  }).catch(() => false);
 
   if (!valid) {
     throw new Error('Invalid QR signature');

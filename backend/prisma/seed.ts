@@ -122,6 +122,7 @@ async function main(): Promise<void> {
   for (const s of ALL_SESSIONS) {
     const created = await prisma.session.create({
       data: {
+        registryAddress: (process.env.CONTRACT_ADDRESS ?? '').toLowerCase(),
         sessionIdOnchain: s.onchainId,
         name: s.name,
         date: new Date(s.date),
