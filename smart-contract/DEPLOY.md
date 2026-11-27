@@ -154,3 +154,6 @@ cast send <CONTRACT_ADDRESS> "grantRole(bytes32,address)" $(cast keccak "ADMIN_R
 cast send <CONTRACT_ADDRESS> "setBaseCid(string)" <CID> \
   --rpc-url <RPC_URL> --account <keystore-name>
 ```
+
+After `setBaseCid`, set `CONTRACT_BASE_CID` on the backend to the same CID and restart it: the
+API builds metadata URIs from that variable, not from the contract.

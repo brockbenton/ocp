@@ -41,7 +41,8 @@ export default function AdminRolesPage() {
 
       <p className="rounded-lg border border-line bg-surface p-4 text-sm text-content-secondary">
         Officers can&apos;t add or remove officers from this dashboard. Role changes need the
-        club&apos;s governance approval.
+        club&apos;s governance approval. An officer added from a wallet is listed here once they
+        have opened this page.
       </p>
 
       <section>
