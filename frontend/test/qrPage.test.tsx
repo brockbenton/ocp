@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const router = { replace: vi.fn() };
@@ -27,6 +27,8 @@ const TTL = 300_000;
 const START = Date.UTC(2026, 10, 20, 18, 0, 0);
 
 let qrStatus = 200;
+/** When true, QR requests never settle. */
+let qrStalls = false;
 /** Offset of the server clock from the projector's clock. */
 let serverSkew = 0;
 const issued: number[] = [];
@@ -37,10 +39,12 @@ const json = (status: number, body: unknown) =>
 beforeEach(() => {
   vi.useFakeTimers({ now: START });
   qrStatus = 200;
+  qrStalls = false;
   serverSkew = 0;
   issued.length = 0;
   vi.stubGlobal('fetch', async (url: string) => {
     if (!url.endsWith('/qr')) return json(200, { data: { name: 'Kickoff', date: new Date(START).toISOString(), semester: 'Fall 2026' } });
+    if (qrStalls) return new Promise<Response>(() => {});
     if (qrStatus !== 200) return json(qrStatus, { error: { code: qrStatus === 409 ? 'CONFLICT' : 'INTERNAL_ERROR', message: 'nope' } });
     issued.push(Date.now());
     const issuedAt = Date.now() + serverSkew;
@@ -128,6 +132,27 @@ describe('projector QR page', () => {
 
     qrStatus = 200;
     await advance(6_000);
+    expect(shownQrIsValid()).toBe(true);
+  });
+
+  it('fetches a new code at once when the clock jumps past expiry, as after sleep', async () => {
+    await renderPage();
+    vi.setSystemTime(START + 600_000);
+    await advance(1_000); // the countdown tick notices
+    await advance(50); // and the refresh it schedules runs
+    expect(issued).toHaveLength(2);
+    expect(shownQrIsValid()).toBe(true);
+  });
+
+  it('offers a manual refresh when the replacement request stalls', async () => {
+    await renderPage();
+    qrStalls = true;
+    await advance(TTL + 2_000);
+    expect(screen.queryByTestId('qr')).toBeNull();
+
+    qrStalls = false;
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }));
+    await advance(50);
     expect(shownQrIsValid()).toBe(true);
   });
 

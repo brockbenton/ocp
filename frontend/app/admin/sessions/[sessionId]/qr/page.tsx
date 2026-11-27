@@ -60,26 +60,28 @@ export default function AdminSessionQRPage() {
   const timing = qrPayload ? qrTiming(qrPayload, dataUpdatedAt) : null;
   const refreshAt = timing?.refreshAt;
   const isClosed = qrError instanceof ApiRequestError && qrError.status === 409;
+  const msLeft = timing ? timing.expiresAt - Math.max(now, dataUpdatedAt) : 0;
+  const showQR = !isClosed && msLeft > 0;
+  // The refresh timer can lag the clock, e.g. after the projector laptop sleeps.
+  const expired = timing !== null && msLeft <= 0;
 
   // Fetch the next QR while the current one is still valid; retry soon after a failure.
   useEffect(() => {
     if (isClosed) return;
     let delay: number;
     if (qrError) delay = RETRY_MS;
+    else if (expired) delay = 0;
     else if (refreshAt !== undefined) delay = Math.max(0, refreshAt - Date.now());
     else return;
     const timer = setTimeout(() => void refetch(), delay);
     return () => clearTimeout(timer);
-  }, [isClosed, qrError, errorUpdatedAt, refreshAt, refetch]);
+  }, [isClosed, expired, qrError, errorUpdatedAt, refreshAt, refetch]);
 
   // Drives the countdown and hides the QR once it expires.
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
-
-  const msLeft = timing ? timing.expiresAt - Math.max(now, dataUpdatedAt) : 0;
-  const showQR = !isClosed && msLeft > 0;
 
   if (!ready || !authenticated) {
     return (
@@ -151,11 +153,19 @@ export default function AdminSessionQRPage() {
           <QRErrorState isClosed={isClosed} onRetry={() => void refetch()} />
         ) : (
           // Loading, or the last code expired and its replacement is not here yet.
-          <div
-            role="status"
-            aria-label="Loading QR code"
-            className="w-10 h-10 border-4 border-green border-t-transparent rounded-full animate-spin"
-          />
+          <div className="flex flex-col items-center gap-4">
+            <div
+              role="status"
+              aria-label="Loading QR code"
+              className="w-10 h-10 border-4 border-green border-t-transparent rounded-full animate-spin"
+            />
+            <button
+              onClick={() => void refetch()}
+              className="text-xs text-content-muted hover:text-content-secondary underline"
+            >
+              Refresh now
+            </button>
+          </div>
         )}
       </main>
     </div>
@@ -178,7 +188,11 @@ function formatCountdown(seconds: number): string {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-function CountdownLine({ secondsLeft }: { secondsLeft: number }) {
+interface CountdownLineProps {
+  secondsLeft: number;
+}
+
+function CountdownLine({ secondsLeft }: CountdownLineProps) {
   if (secondsLeft > REFRESH_LEAD_MS / 1000) {
     return (
       <p className="text-sm text-content-secondary">
