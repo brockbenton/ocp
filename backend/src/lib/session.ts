@@ -2,6 +2,9 @@ import { Response } from 'express';
 import type { Session } from '@prisma/client';
 import prisma from './prisma';
 
+/** Sessions with a close in flight (on-chain ids); check-ins are refused until it settles. */
+export const closingSessions = new Set<string>();
+
 // August is the first month of the fall semester; everything before it is spring.
 const FALL_START_MONTH = 7;
 

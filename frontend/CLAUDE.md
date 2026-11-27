@@ -28,6 +28,7 @@ frontend/
     api/                  # Typed fetch wrappers for backend API
   hooks/                  # Custom React hooks
   types/                  # Shared TypeScript types/interfaces
+  test/                   # Vitest + Testing Library (`npm test`)
 ```
 
 ## Conventions
