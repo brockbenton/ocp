@@ -100,10 +100,31 @@ describe('closing a session from /admin/sessions', () => {
     renderPage();
     await confirmClose();
 
-    expect((await screen.findByRole('alert')).textContent).toContain('still open');
+    expect((await screen.findByRole('alert')).textContent).toContain('still shows as open');
     expect(screen.getByText('Active')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'QR' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Close' })).toBeTruthy();
+  });
+
+  it('says why when check-ins are still being recorded', async () => {
+    const message = 'Check-ins still being recorded on-chain: 2. Try again in a minute.';
+    closeResponse = () => json(409, { error: { code: 'MINTS_PENDING', message } });
+    renderPage();
+    await confirmClose();
+
+    expect((await screen.findByRole('alert')).textContent).toBe(message);
+    expect(screen.getByRole('button', { name: 'Close' })).toBeTruthy();
+  });
+
+  it('reloads the list when the request fails after the server closed the session', async () => {
+    closeResponse = () => {
+      session = { ...open, closedAt: '2026-11-20T19:00:00.000Z' };
+      return new Response('<html>Gateway Timeout</html>', { status: 504 });
+    };
+    renderPage();
+    await confirmClose();
+
+    await waitFor(() => expect(screen.getByText('Closed')).toBeTruthy());
   });
 
   it('reloads the list when the session was already closed', async () => {

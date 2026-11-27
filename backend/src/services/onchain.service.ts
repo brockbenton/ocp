@@ -27,3 +27,14 @@ export async function tokenBalanceOnChain(
     args: [getAddress(member), BigInt(sessionIdOnchain)],
   }) as Promise<bigint>;
 }
+
+/** True only for a session that exists on the registry and has been closed. */
+export async function isSessionClosedOnChain(sessionIdOnchain: string): Promise<boolean> {
+  const session = await publicClient.readContract({
+    address: contractAddress,
+    abi: ATTENDANCE_ABI,
+    functionName: 'getSession',
+    args: [BigInt(sessionIdOnchain)],
+  });
+  return session.date !== 0n && !session.active;
+}

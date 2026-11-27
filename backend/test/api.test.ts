@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
+import { privateKeyToAccount } from 'viem/accounts';
 
 const ALICE = '0x1111111111111111111111111111111111111111';
 const BOB = '0x2222222222222222222222222222222222222222';
@@ -23,17 +24,33 @@ vi.mock('@privy-io/server-auth', () => ({
   },
 }));
 
+const chainState = vi.hoisted(() => ({
+  closedOnChain: false,
+  closeCalls: 0,
+  send: async (): Promise<`0x${string}`> => '0xclose',
+}));
+
+vi.mock('../src/services/relay.service', () => ({
+  closeSessionOnChain: () => {
+    chainState.closeCalls += 1;
+    return chainState.send();
+  },
+}));
+
 // Admin authorization is the on-chain role — mock it so tests don't hit an RPC.
 vi.mock('../src/services/onchain.service', () => ({
   hasAdminRoleOnChain: async (wallet: string) =>
     wallet.toLowerCase() === '0x1111111111111111111111111111111111111111',
   tokenBalanceOnChain: async () => 0n,
+  isSessionClosedOnChain: async () => chainState.closedOnChain,
 }));
 
 // Avoid opening a Redis socket when the app imports the check-in route.
 vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async () => ({ id: 'test' }) } }));
 
 import { createApp } from '../src/app';
+import prisma from '../src/lib/prisma';
+import { generateQR } from '../src/services/qr.service';
 
 const app = createApp();
 type Member = Record<string, unknown>;
@@ -129,5 +146,114 @@ describe('admin routes are gated by the on-chain role', () => {
     expect(overview.status).toBe(200);
     expect(overview.body.data.totalSessions).toBe(16);
     expect(overview.body.data.series).toHaveLength(16);
+  });
+});
+
+describe('POST /api/v1/sessions/:sessionId/close', () => {
+  const sessionId = '900001';
+  const remove = async () => {
+    await prisma.checkIn.deleteMany({ where: { session: { sessionIdOnchain: sessionId } } });
+    await prisma.session.deleteMany({ where: { sessionIdOnchain: sessionId } });
+  };
+  const create = () =>
+    prisma.session.create({
+      data: {
+        sessionIdOnchain: sessionId,
+        name: 'Close test',
+        date: new Date(),
+        semester: 'Fall 2026',
+        createdBy: ALICE,
+        onchainStatus: 'CONFIRMED',
+      },
+    });
+  const addPendingCheckIn = async (id: string, ageMs: number) => {
+    const member = await prisma.member.findFirstOrThrow({ where: { walletAddress: ALICE } });
+    await prisma.checkIn.create({
+      data: { memberId: member.id, sessionId: id, nonce: 'n', checkedInAt: new Date(Date.now() - ageMs) },
+    });
+  };
+  const close = () =>
+    request(app).post(`/api/v1/sessions/${sessionId}/close`).set('Authorization', 'Bearer test');
+  const stored = () => prisma.session.findUniqueOrThrow({ where: { sessionIdOnchain: sessionId } });
+
+  beforeEach(async () => {
+    await remove();
+    chainState.closedOnChain = false;
+    chainState.closeCalls = 0;
+    chainState.send = async () => '0xclose';
+  });
+  afterEach(remove);
+
+  it('waits for check-ins that are still being recorded', async () => {
+    await addPendingCheckIn((await create()).id, 0);
+    const res = await close();
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('MINTS_PENDING');
+    expect(chainState.closeCalls).toBe(0);
+    expect((await stored()).closedAt).toBeNull();
+  });
+
+  it('is not blocked forever by a stuck check-in', async () => {
+    await addPendingCheckIn((await create()).id, 60 * 60_000);
+    const res = await close();
+    expect(res.status).toBe(200);
+    expect((await stored()).closeTxHash).toBe('0xclose');
+  });
+
+  it('keeps the session open when the chain still shows it active', async () => {
+    await create();
+    chainState.send = async () => Promise.reject(new Error('timed out'));
+    const res = await close();
+    expect(res.status).toBe(500);
+    expect(res.body.error.code).toBe('CHAIN_ERROR');
+    expect((await stored()).closedAt).toBeNull();
+  });
+
+  it('records the close when an earlier transaction already landed', async () => {
+    await create();
+    chainState.send = async () => Promise.reject(new Error('SessionNotActive'));
+    chainState.closedOnChain = true;
+    const res = await close();
+    expect(res.status).toBe(200);
+    expect((await stored()).closedAt).not.toBeNull();
+  });
+
+  it('refuses check-ins and a second close while one is in flight', async () => {
+    const session = await create();
+    let finish: (hash: `0x${string}`) => void = () => {};
+    const sent = new Promise<void>((started) => {
+      chainState.send = () =>
+        new Promise((resolve) => {
+          finish = resolve;
+          started();
+        });
+    });
+    const first = close().then((res) => res);
+    await sent;
+
+    expect((await close()).status).toBe(409);
+
+    const member = privateKeyToAccount(
+      '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a',
+    );
+    authState.wallet = member.address.toLowerCase();
+    const signedAt = Date.now();
+    const checkIn = await request(app)
+      .post('/api/v1/check-in')
+      .set('Authorization', 'Bearer test')
+      .send({
+        qrPayload: await generateQR(sessionId),
+        signedAt,
+        memberSignature: await member.signMessage({
+          message: `I am checking into session ${sessionId} as ${authState.wallet} at ${signedAt}`,
+        }),
+      });
+    expect(checkIn.status).toBe(409);
+    expect(checkIn.body.error.code).toBe('SESSION_CLOSED');
+    expect(await prisma.checkIn.count({ where: { sessionId: session.id } })).toBe(0);
+
+    finish('0xclose');
+    expect((await first).status).toBe(200);
+    expect(chainState.closeCalls).toBe(1);
   });
 });

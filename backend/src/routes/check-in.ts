@@ -8,7 +8,7 @@ import { verifyQR } from '../services/qr.service';
 import { mintQueue } from '../lib/queue';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
-import { findSessionOr404 } from '../lib/session';
+import { findSessionOr404, closingSessions } from '../lib/session';
 
 const router = Router();
 
@@ -78,7 +78,7 @@ router.post(
     const session = await findSessionOr404(qr.sessionId, res);
     if (!session) return;
 
-    if (session.closedAt) {
+    if (session.closedAt || closingSessions.has(qr.sessionId)) {
       res.status(409).json({ error: { code: 'SESSION_CLOSED', message: 'Session is closed' } });
       return;
     }

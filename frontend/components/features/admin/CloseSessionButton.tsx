@@ -6,20 +6,19 @@ import { closeSession } from '@/lib/api/admin';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { requireIdentityToken, ApiRequestError } from '@/lib/api/client';
 
-interface CloseSessionButtonProps {
-  sessionId: string;
-  sessionName: string;
-}
-
 function closeErrorMessage(error: unknown): string {
   if (error instanceof ApiRequestError) {
-    if (error.status === 409) return 'This session was already closed.';
     if (error.code === 'CHAIN_ERROR') {
-      return 'The on-chain close failed. The session is still open; try again.';
+      return 'The on-chain close was not confirmed. If the session still shows as open, try again.';
     }
     return error.message;
   }
-  return 'Could not close the session. Check your connection and try again.';
+  return 'Could not confirm the close. Check your connection; if the session still shows as open, try again.';
+}
+
+interface CloseSessionButtonProps {
+  sessionId: string;
+  sessionName: string;
 }
 
 export default function CloseSessionButton({ sessionId, sessionName }: CloseSessionButtonProps) {
@@ -38,10 +37,10 @@ export default function CloseSessionButton({ sessionId, sessionName }: CloseSess
       return closeSession(sessionId, token);
     },
     onSuccess: refreshSessions,
-    onError: (err) => {
+    onError: () => {
       setConfirming(false);
-      // 409 means the list is stale: someone else closed it, so reload the truth.
-      if (err instanceof ApiRequestError && err.status === 409) void refreshSessions();
+      // The session may have changed even though the request failed, so reload the truth.
+      void refreshSessions();
     },
   });
 
