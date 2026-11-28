@@ -189,7 +189,10 @@ Order matters; each script refuses to run if the step before it is incomplete.
 6. **Finalize and hand off** (IRREVERSIBLE): run step 5 again with `FINALIZE=true`. The script
    asserts that the deployer holds no role and prints confirmation. Proposals are rejected until
    this has happened.
-7. Record the addresses in `addresses.json`, then update the backend and frontend environment.
+7. Record the addresses in `addresses.json`, then update the backend and frontend environment:
+   `CONTRACT_ADDRESS` and `NEXT_PUBLIC_CONTRACT_ADDRESS` become the new `AttendanceRegistry2`
+   (the frontend build accepts a stale address). **Back up the database** before the new backend
+   first starts: its migration drops `admin_roles`.
 8. After the first officer-election proposal executes, the guardian renounces `CANCELLER_ROLE`.
    After 120 days anyone can call `ClubTimelock.expireGuardian()`.
 
