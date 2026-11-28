@@ -1,26 +1,11 @@
 import 'dotenv/config';
-import { createApp } from './app';
-import { startMintWorker } from './jobs/mint.job';
 import logger from './lib/logger';
-import { adoptUnscopedSessions } from './lib/session';
+import { missingEnv } from './lib/config';
 
-const required = [
-  'DATABASE_URL',
-  'REDIS_URL',
-  'ALCHEMY_API_KEY',
-  'CONTRACT_ADDRESS',
-  'RELAY_PRIVATE_KEY',
-  'ADMIN_SIGNER_PRIVATE_KEY',
-  'PRIVY_APP_ID',
-  'PRIVY_APP_SECRET',
-  'CORS_ORIGINS',
-] as const;
-
-for (const key of required) {
-  if (!process.env[key]) {
-    logger.error({ msg: `Missing required environment variable: ${key}` });
-    process.exit(1);
-  }
+const missing = missingEnv();
+if (missing.length > 0) {
+  logger.error({ msg: `Missing required environment variables: ${missing.join(', ')}` });
+  process.exit(1);
 }
 
 // Optional, but a production deploy without it publishes relative art and badge URLs.
@@ -28,21 +13,25 @@ if (process.env.NODE_ENV === 'production' && !process.env.PUBLIC_API_URL) {
   logger.warn({ msg: 'PUBLIC_API_URL is unset: art and badge URLs will be relative' });
 }
 
-const app = createApp();
+async function main(): Promise<void> {
+  // Imported only now: these modules read the variables checked above.
+  const { createApp } = await import('./app');
+  const { assertKeyRoles } = await import('./lib/keyChecks');
+  const { adoptUnscopedSessions } = await import('./lib/session');
+  const { startJobs } = await import('./jobs/runner');
 
-const PORT = parseInt(process.env.PORT ?? '3001');
+  await assertKeyRoles();
+  // Sessions must be scoped to a registry before any request looks one up.
+  await adoptUnscopedSessions();
 
-// Sessions must be scoped to the registry before any request looks one up.
-adoptUnscopedSessions()
-  .then(() => {
-    app.listen(PORT, () => {
-      logger.info({ msg: `Backend listening on port ${PORT}` });
-      startMintWorker();
-    });
-  })
-  .catch((err: Error) => {
-    logger.error({ msg: 'Startup failed', err: err.message });
-    process.exit(1);
+  const port = parseInt(process.env.PORT ?? '3001', 10);
+  createApp().listen(port, () => {
+    logger.info({ msg: `Backend listening on port ${port}` });
+    startJobs();
   });
+}
 
-export default app;
+main().catch((err: Error) => {
+  logger.error({ msg: 'Startup failed', err: err.message });
+  process.exit(1);
+});

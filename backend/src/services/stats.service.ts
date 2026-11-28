@@ -2,15 +2,11 @@ import prisma from '../lib/prisma';
 import { getPrivy } from '../middleware/auth';
 import logger from '../lib/logger';
 import { tokenMetadataUri, buildMeetingNumberMap } from './ipfs.service';
-import { semesterArtUrl, tierBadgeUrl, badgeTierFor } from './art.service';
+import { semesterArtUrl, foundingBadgeUrl } from './art.service';
 import { semesterFor } from '../lib/session';
-
-export type StatusTier = 'General Member' | 'Official Member';
+import { tokenRepStatus, type TokenRepStatus } from './rep.service';
 
 const CONFIRMED_STATUS = 'CONFIRMED' as const;
-const OFFICIAL_TIER: StatusTier = 'Official Member';
-const GENERAL_TIER: StatusTier = 'General Member';
-const DEFAULT_OFFICIAL_THRESHOLD = 75;
 const MS_PER_DAY = 86_400_000;
 const ROLLING_WINDOW_DAYS = [30, 90, 180] as const;
 
@@ -19,19 +15,10 @@ const ROLLING_WINDOW_DAYS = [30, 90, 180] as const;
  * to date, so every member is measured against the same club-wide meeting count.
  * This matches the Phase 2 member table exactly — the vault and personal-stats
  * views reuse this definition so numbers never disagree across pages.
+ *
+ * Attendance is lifetime history and never decays; voting power (Rep) is read
+ * separately from the chain.
  */
-function officialThreshold(): number {
-  const parsed = parseInt(
-    process.env.OFFICIAL_MEMBER_THRESHOLD ?? String(DEFAULT_OFFICIAL_THRESHOLD),
-    10,
-  );
-  return Number.isFinite(parsed) ? parsed : DEFAULT_OFFICIAL_THRESHOLD;
-}
-
-function tierFor(allTimePct: number): StatusTier {
-  return allTimePct >= officialThreshold() ? OFFICIAL_TIER : GENERAL_TIER;
-}
-
 function toPct(numerator: number, denominator: number): number {
   return denominator > 0 ? Math.round((numerator / denominator) * 100) : 0;
 }
@@ -44,7 +31,6 @@ export interface MemberStat {
   tokensEarned: number;
   allTimeAttendancePct: number;
   currentSemesterAttendancePct: number;
-  statusTier: StatusTier;
   lastSeen: string | null;
   joinedAt: string;
   currentStreak: number;
@@ -142,8 +128,6 @@ export async function buildMemberStats(
     ).length;
     const currentSemesterAttendancePct = toPct(semesterCheckIns, currentSemesterTotal);
 
-    const statusTier = tierFor(allTimeAttendancePct);
-
     // Attendance history for this member, keyed by session row id. Reuses the
     // same confirmed-mint definition as tokensEarned so the matrix, the streak
     // and the token count can never disagree.
@@ -167,7 +151,6 @@ export async function buildMemberStats(
       tokensEarned,
       allTimeAttendancePct,
       currentSemesterAttendancePct,
-      statusTier,
       lastSeen: m.checkIns[0]?.checkedInAt.toISOString() ?? null,
       joinedAt: m.createdAt.toISOString(),
       currentStreak,
@@ -183,8 +166,8 @@ export async function buildMemberStats(
 }
 
 // ── Phase 3: per-member vault & personal stats ──────────────────────────────
-// Attendance is sourced from confirmed-session check-ins (there is no on-chain
-// event indexer; check_ins is the recorded-attendance table).
+// Attendance is sourced from confirmed-session check-ins: check_ins is the
+// recorded-attendance table, reconciled with mint events by the indexer.
 
 export interface VaultToken {
   tokenId: string;
@@ -193,7 +176,8 @@ export interface VaultToken {
   date: string;
   semester: string;
   meetingNumber: number;
-  mintStatus: 'PENDING' | 'CONFIRMED' | 'FAILED';
+  mintStatus: 'PENDING' | 'SUBMITTED' | 'CONFIRMED' | 'FAILED';
+  repStatus: TokenRepStatus;
   txHash: string | null;
   imageUrl: string;
   metadataUri: string | null;
@@ -238,6 +222,7 @@ export async function buildMemberVault(address: string): Promise<MemberVault> {
     semester: c.session.semester,
     meetingNumber: meetingNumbers.get(c.session.sessionIdOnchain) ?? 0,
     mintStatus: c.mintStatus,
+    repStatus: tokenRepStatus(c.session, walletAddress),
     txHash: c.txHash,
     imageUrl: semesterArtUrl(c.session.semester),
     metadataUri: tokenMetadataUri(c.session.sessionIdOnchain),
@@ -263,7 +248,6 @@ export interface PersonalStats {
   currentSemester: string;
   currentSemesterTotal: number;
   currentSemesterAttendancePct: number;
-  statusTier: StatusTier;
   meetingsLast30Days: number;
   meetingsLast90Days: number;
   meetingsLast180Days: number;
@@ -271,7 +255,8 @@ export interface PersonalStats {
   longestStreak: number;
   lastSeen: string | null;
   semesterBreakdown: SemesterStat[];
-  badgeUrl: string;
+  /** The founding-member badge, or null. */
+  badgeUrl: string | null;
 }
 
 export async function buildPersonalStats(
@@ -326,7 +311,6 @@ export async function buildPersonalStats(
       tokensEarned: 0,
       allTimeAttendancePct: 0,
       currentSemesterAttendancePct: 0,
-      statusTier: tierFor(0),
       meetingsLast30Days: 0,
       meetingsLast90Days: 0,
       meetingsLast180Days: 0,
@@ -339,7 +323,7 @@ export async function buildPersonalStats(
         total: totalsBySemester.get(semester) ?? 0,
         pct: 0,
       })),
-      badgeUrl: tierBadgeUrl(badgeTierFor(tierFor(0), false)),
+      badgeUrl: null,
     };
   }
 
@@ -378,7 +362,6 @@ export async function buildPersonalStats(
     tokensEarned,
     allTimeAttendancePct,
     currentSemesterAttendancePct: toPct(semesterAttended, currentSemesterTotal),
-    statusTier: tierFor(allTimeAttendancePct),
     meetingsLast30Days,
     meetingsLast90Days,
     meetingsLast180Days,
@@ -386,7 +369,7 @@ export async function buildPersonalStats(
     longestStreak,
     lastSeen: member.checkIns[0]?.checkedInAt.toISOString() ?? null,
     semesterBreakdown,
-    badgeUrl: tierBadgeUrl(badgeTierFor(tierFor(allTimeAttendancePct), member.foundingMember)),
+    badgeUrl: member.foundingMember ? foundingBadgeUrl() : null,
   };
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { verifyTypedData } from 'viem';
-import { adminAccount, chain, registryAddress } from '../lib/contract';
+import { qrAccount, chain, registryAddress } from '../lib/contract';
 import { CHECK_IN_TYPES, checkInDomain } from '../lib/typedData';
 import { QREnvelope, QRPayload } from '../types';
 import logger from '../lib/logger';
@@ -52,7 +52,7 @@ export async function generateQR(sessionId: string): Promise<string> {
     nonce: randomUUID(),
   };
 
-  const signature = await adminAccount.signTypedData(typedQR(payload));
+  const signature = await qrAccount.signTypedData(typedQR(payload));
 
   const envelope: QREnvelope = { payload, signature };
   return Buffer.from(JSON.stringify(envelope)).toString('base64');
@@ -87,7 +87,7 @@ export async function verifyQR(encoded: string): Promise<QRPayload> {
   // A QR signed for another chain or registry recovers a different signer here.
   const valid = await verifyTypedData({
     ...typedQR(payload),
-    address: adminAccount.address,
+    address: qrAccount.address,
     signature,
   }).catch(() => false);
 

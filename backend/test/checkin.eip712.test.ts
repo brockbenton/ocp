@@ -15,8 +15,6 @@ const OTHER_REGISTRY = '0x0000000000000000000000000000000000000002';
 const BASE_SEPOLIA = 84532;
 const SESSION_ID = '9001';
 
-const queued = vi.hoisted(() => [] as unknown[]);
-
 vi.mock('@privy-io/server-auth', () => ({
   PrivyClient: class {
     async getUser() {
@@ -29,14 +27,9 @@ vi.mock('@privy-io/server-auth', () => ({
     }
   },
 }));
-vi.mock('../src/lib/queue', () => ({
-  MINT_QUEUE: 'mint',
-  mintQueue: {
-    add: async (_name: string, data: unknown) => {
-      queued.push(data);
-      return { id: 'job' };
-    },
-  },
+vi.mock('../src/services/onchain.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/onchain.service')>()),
+  getPauseState: async () => ({ paused: false, pausedUntil: 0, unpauseApprover: null }),
 }));
 
 import { createApp } from '../src/app';
@@ -94,13 +87,14 @@ const newSession = (registryAddress: string) =>
     },
   });
 
+/** Check-ins waiting for the relay. */
+const queued = () =>
+  prisma.checkIn.count({ where: { mintStatus: 'PENDING', session: { sessionIdOnchain: SESSION_ID } } });
+
 beforeAll(async () => {
   await cleanUp();
 });
-beforeEach(async () => {
-  await cleanUp();
-  queued.length = 0;
-});
+beforeEach(cleanUp);
 afterAll(cleanUp);
 
 describe('check-in signatures are bound to chain and registry', () => {
@@ -116,7 +110,7 @@ describe('check-in signatures are bound to chain and registry', () => {
   it('accepts a signature made with the frontend definitions', async () => {
     const res = await checkIn({ qrPayload: await generateQR(SESSION_ID), ...(await sign()) });
     expect(res.status).toBe(202);
-    expect(queued).toHaveLength(1);
+    expect(await queued()).toBe(1);
   });
 
   it.each([
@@ -126,7 +120,7 @@ describe('check-in signatures are bound to chain and registry', () => {
     const res = await checkIn({ qrPayload: await qrFromDeployment(env), ...(await sign()) });
     expect(res.status).toBe(400);
     expect(res.body.error).toEqual({ code: 'INVALID_QR', message: 'Invalid QR signature' });
-    expect(queued).toEqual([]);
+    expect(await queued()).toBe(0);
   });
 
   it.each([
@@ -141,7 +135,7 @@ describe('check-in signatures are bound to chain and registry', () => {
     const res = await checkIn({ qrPayload: await generateQR(SESSION_ID), ...(await sign(overrides)) });
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('ADDRESS_MISMATCH');
-    expect(queued).toEqual([]);
+    expect(await queued()).toBe(0);
   });
 
   it('rejects a plain-message signature of the old format', async () => {
@@ -175,13 +169,17 @@ describe('sessions are scoped to a registry', () => {
     expect(await prisma.session.findUnique({ where: sessionKey(SESSION_ID) })).toMatchObject({ id: here.id });
   });
 
-  it('adopts rows recorded before sessions carried a registry', async () => {
+  it('assigns rows without a registry to the legacy registry, never the current one', async () => {
     const legacy = await newSession('');
+    await expect(adoptUnscopedSessions()).rejects.toThrow('LEGACY_REGISTRY_ADDRESS');
+
+    vi.stubEnv('LEGACY_REGISTRY_ADDRESS', OTHER_REGISTRY);
     expect(await adoptUnscopedSessions()).toBe(1);
     expect(await prisma.session.findUnique({ where: { id: legacy.id } })).toMatchObject({
-      registryAddress: REGISTRY,
+      registryAddress: OTHER_REGISTRY,
     });
     expect(await adoptUnscopedSessions()).toBe(0);
+    vi.unstubAllEnvs();
   });
 
   it('never looks a session up by on-chain id alone', () => {

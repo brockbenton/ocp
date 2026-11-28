@@ -36,7 +36,7 @@ describe('buildPersonalStats', () => {
     expect(s.totalSessions).toBe(16);
     expect(s.allTimeAttendancePct).toBe(100);
     expect(s.currentSemesterAttendancePct).toBe(100);
-    expect(s.statusTier).toBe('Official Member');
+    expect(s).not.toHaveProperty('statusTier');
     expect(s.foundingMember).toBe(true);
     expect(s.currentStreak).toBe(16);
     expect(s.longestStreak).toBe(16);
@@ -47,17 +47,16 @@ describe('buildPersonalStats', () => {
     expect(s.tokensEarned).toBe(1); // only the CONFIRMED 3011
     expect(s.currentStreak).toBe(0); // most recent session (3012) is still PENDING
     expect(s.meetingsLast30Days).toBe(1);
-    expect(s.statusTier).toBe('General Member');
+    expect(s.badgeUrl).toBeNull();
   });
 
-  it('carol: general member, broken streak, longest run of 5', async () => {
+  it('carol: broken streak, longest run of 5', async () => {
     const s = await buildPersonalStats(CAROL, NOW);
-    expect(s.statusTier).toBe('General Member');
     expect(s.currentStreak).toBe(0);
     expect(s.longestStreak).toBe(5);
   });
 
-  it('alice: per-semester rollup and a founding-tier badge URL', async () => {
+  it('alice: per-semester rollup and a founding badge URL', async () => {
     const s = await buildPersonalStats(ALICE, NOW);
     expect(s.semesterBreakdown).toHaveLength(2); // Spring 2026 + Fall 2025, recent first
     expect(s.semesterBreakdown[0].semester).toBe('Spring 2026');

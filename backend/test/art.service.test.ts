@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   renderSemesterBadgeSvg,
-  renderTierBadgeSvg,
+  renderFoundingBadgeSvg,
   semesterArtUrl,
-  tierBadgeUrl,
-  badgeTierFor,
+  foundingBadgeUrl,
 } from '../src/services/art.service';
 
 describe('renderSemesterBadgeSvg', () => {
@@ -24,23 +23,15 @@ describe('renderSemesterBadgeSvg', () => {
   });
 });
 
-describe('tier badges', () => {
-  it('badgeTierFor prioritizes founding, then official', () => {
-    expect(badgeTierFor('General Member', true)).toBe('founding');
-    expect(badgeTierFor('Official Member', false)).toBe('official');
-    expect(badgeTierFor('General Member', false)).toBe('general');
-  });
-
-  it('renders a labeled badge per tier, falling back to General', () => {
-    expect(renderTierBadgeSvg('official')).toContain('Official Member');
-    expect(renderTierBadgeSvg('founding')).toContain('Founding Member');
-    expect(renderTierBadgeSvg('bogus')).toContain('General Member');
+describe('founding badge', () => {
+  it('renders the only member badge: attendance tiers are retired', () => {
+    expect(renderFoundingBadgeSvg()).toContain('Founding Member');
   });
 });
 
 describe('asset URLs', () => {
   it('use PUBLIC_API_URL and the expected paths', () => {
     expect(semesterArtUrl('Spring 2026')).toBe('http://localhost:3001/api/v1/art/Spring%202026');
-    expect(tierBadgeUrl('official')).toBe('http://localhost:3001/api/v1/badge/official');
+    expect(foundingBadgeUrl()).toBe('http://localhost:3001/api/v1/badge/founding');
   });
 });

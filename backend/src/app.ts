@@ -9,6 +9,8 @@ import checkInRouter from './routes/check-in';
 import adminRouter from './routes/admin';
 import membersRouter from './routes/members';
 import assetsRouter from './routes/art';
+import governanceRouter from './routes/governance';
+import clubRouter from './routes/club';
 import logger from './lib/logger';
 
 /**
@@ -53,6 +55,8 @@ export function createApp() {
   app.use('/api/v1/check-in', checkInRouter);
   app.use('/api/v1/admin', adminRouter);
   app.use('/api/v1/members', membersRouter);
+  app.use('/api/v1/governance', governanceRouter);
+  app.use('/api/v1/club', clubRouter);
   app.use('/api/v1', assetsRouter);
 
   app.get('/health', (_req, res) => {

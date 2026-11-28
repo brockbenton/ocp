@@ -9,13 +9,13 @@ OCP's v1 DAO gives members nontransferable **Rep** for verified attendance. Rep 
 ## Structure
 
 - `smart-contract/` — Solidity + Foundry; soulbound ERC‑1155 `AttendanceRegistry` on Base.
-- `backend/` — Node/Express/TypeScript, PostgreSQL + Prisma, BullMQ mint relay, QR signing.
+- `backend/` — Node/Express/TypeScript, PostgreSQL + Prisma, transaction relay, event indexer, QR signing.
 - `frontend/` — Next.js 14, Privy (email/Google/passkey), viem, Tailwind.
 
 ## Quick start
 
 - Contract: `cd smart-contract && forge test`
-- Backend: `cd backend && npm i && npm run dev` — needs Postgres + Redis (copy `.env`).
+- Backend: `cd backend && npm i && npm run dev` — needs Postgres and deployed Phase 5 contracts (see `backend/.env.example`).
 - Frontend: `cd frontend && npm i && npm run dev`
 
 CI (GitHub Actions) runs contract tests, backend build/tests, and the frontend build on every PR. See `MASTER_PLAN.md` for the full design.

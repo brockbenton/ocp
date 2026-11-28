@@ -13,7 +13,6 @@ vi.mock('@privy-io/server-auth', () => ({
     }
   },
 }));
-vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async () => ({ id: 'test' }) } }));
 
 import { createApp } from '../src/app';
 import { generateQR, verifyQR, resolveQrTtlMs, MAX_QR_TTL_MS } from '../src/services/qr.service';

@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import request from 'supertest';
-import { privateKeyToAccount } from 'viem/accounts';
 
 const ALICE = '0x1111111111111111111111111111111111111111';
 const BOB = '0x2222222222222222222222222222222222222222';
@@ -27,36 +26,20 @@ vi.mock('@privy-io/server-auth', () => ({
   },
 }));
 
-const chainState = vi.hoisted(() => ({
-  closedOnChain: false,
-  closeCalls: 0,
-  send: async (): Promise<`0x${string}`> => '0xclose',
-}));
-
-vi.mock('../src/services/relay.service', () => ({
-  closeSessionOnChain: () => {
-    chainState.closeCalls += 1;
-    return chainState.send();
-  },
-}));
-
 // Admin authorization is the on-chain role — mock it so tests don't hit an RPC.
-vi.mock('../src/services/onchain.service', () => ({
+vi.mock('../src/services/onchain.service', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/services/onchain.service')>()),
   hasAdminRoleOnChain: async (wallet: string) =>
     wallet.toLowerCase() === '0x1111111111111111111111111111111111111111',
   tokenBalanceOnChain: async () => 0n,
-  isSessionClosedOnChain: async () => chainState.closedOnChain,
+  getSignOffOnChain: async () => ({ status: 'NONE' }),
+  getRepSnapshot: async () => {
+    throw new Error('no chain in unit tests');
+  },
 }));
 
-// Avoid opening a Redis socket when the app imports the check-in route.
-vi.mock('../src/lib/queue', () => ({ MINT_QUEUE: 'mint', mintQueue: { add: async () => ({ id: 'test' }) } }));
 
 import { createApp } from '../src/app';
-import prisma from '../src/lib/prisma';
-import { generateQR } from '../src/services/qr.service';
-import { currentRegistry, sessionKey } from '../src/lib/session';
-import { chain, registryAddress } from '../src/lib/contract';
-import { CHECK_IN_TYPES, checkInDomain } from '../src/lib/typedData';
 
 const app = createApp();
 type Member = Record<string, unknown>;
@@ -74,6 +57,10 @@ describe('GET /api/v1/members (public)', () => {
     expect(members).toHaveLength(6);
     expect(members.every((m) => !('linkedAccount' in m))).toBe(true);
     expect(members.every((m) => !('id' in m))).toBe(true);
+    expect(members.every((m) => !('statusTier' in m))).toBe(true);
+    // The chain is unreachable here: Rep is reported as unknown, never invented.
+    expect(members.every((m) => m.rep === null)).toBe(true);
+    expect(res.body.data.repAsOf).toBeNull();
     expect(JSON.stringify(members).includes('@')).toBe(false);
   });
 });
@@ -104,10 +91,11 @@ describe('public asset routes', () => {
     expect(res.headers['content-type']).toContain('image/svg+xml');
   });
 
-  it('serves a member-tier badge SVG', async () => {
-    const res = await request(app).get('/api/v1/badge/official');
+  it('serves the founding badge SVG and no attendance-tier badges', async () => {
+    const res = await request(app).get('/api/v1/badge/founding');
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toContain('image/svg+xml');
+    expect((await request(app).get('/api/v1/badge/official')).status).toBe(404);
   });
 });
 
@@ -152,118 +140,5 @@ describe('admin routes are gated by the on-chain role', () => {
     expect(overview.status).toBe(200);
     expect(overview.body.data.totalSessions).toBe(16);
     expect(overview.body.data.series).toHaveLength(16);
-  });
-});
-
-describe('POST /api/v1/sessions/:sessionId/close', () => {
-  const sessionId = '900001';
-  const remove = async () => {
-    await prisma.checkIn.deleteMany({ where: { session: { sessionIdOnchain: sessionId } } });
-    await prisma.session.deleteMany({ where: { sessionIdOnchain: sessionId } });
-  };
-  const create = () =>
-    prisma.session.create({
-      data: {
-        registryAddress: currentRegistry(),
-        sessionIdOnchain: sessionId,
-        name: 'Close test',
-        date: new Date(),
-        semester: 'Fall 2026',
-        createdBy: ALICE,
-        onchainStatus: 'CONFIRMED',
-      },
-    });
-  const addPendingCheckIn = async (id: string, ageMs: number) => {
-    const member = await prisma.member.findFirstOrThrow({ where: { walletAddress: ALICE } });
-    await prisma.checkIn.create({
-      data: { memberId: member.id, sessionId: id, nonce: 'n', checkedInAt: new Date(Date.now() - ageMs) },
-    });
-  };
-  const close = () =>
-    request(app).post(`/api/v1/sessions/${sessionId}/close`).set('Authorization', 'Bearer test');
-  const stored = () => prisma.session.findUniqueOrThrow({ where: sessionKey(sessionId) });
-
-  beforeEach(async () => {
-    await remove();
-    chainState.closedOnChain = false;
-    chainState.closeCalls = 0;
-    chainState.send = async () => '0xclose';
-  });
-  afterEach(remove);
-
-  it('waits for check-ins that are still being recorded', async () => {
-    await addPendingCheckIn((await create()).id, 0);
-    const res = await close();
-    expect(res.status).toBe(409);
-    expect(res.body.error.code).toBe('MINTS_PENDING');
-    expect(chainState.closeCalls).toBe(0);
-    expect((await stored()).closedAt).toBeNull();
-  });
-
-  it('is not blocked forever by a stuck check-in', async () => {
-    await addPendingCheckIn((await create()).id, 60 * 60_000);
-    const res = await close();
-    expect(res.status).toBe(200);
-    expect((await stored()).closeTxHash).toBe('0xclose');
-  });
-
-  it('keeps the session open when the chain still shows it active', async () => {
-    await create();
-    chainState.send = async () => Promise.reject(new Error('timed out'));
-    const res = await close();
-    expect(res.status).toBe(500);
-    expect(res.body.error.code).toBe('CHAIN_ERROR');
-    expect((await stored()).closedAt).toBeNull();
-  });
-
-  it('records the close when an earlier transaction already landed', async () => {
-    await create();
-    chainState.send = async () => Promise.reject(new Error('SessionNotActive'));
-    chainState.closedOnChain = true;
-    const res = await close();
-    expect(res.status).toBe(200);
-    expect((await stored()).closedAt).not.toBeNull();
-  });
-
-  it('refuses check-ins and a second close while one is in flight', async () => {
-    const session = await create();
-    let finish: (hash: `0x${string}`) => void = () => {};
-    const sent = new Promise<void>((started) => {
-      chainState.send = () =>
-        new Promise((resolve) => {
-          finish = resolve;
-          started();
-        });
-    });
-    const first = close().then((res) => res);
-    await sent;
-
-    expect((await close()).status).toBe(409);
-
-    const member = privateKeyToAccount(
-      '0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a',
-    );
-    authState.wallet = member.address.toLowerCase();
-    const signedAt = Date.now();
-    const checkIn = await request(app)
-      .post('/api/v1/check-in')
-      .set('Authorization', 'Bearer test')
-      .send({
-        qrPayload: await generateQR(sessionId),
-        signedAt,
-        memberSignature: await member.signTypedData({
-          domain: checkInDomain(chain.id, registryAddress),
-          types: CHECK_IN_TYPES,
-          primaryType: 'CheckIn',
-          message: { sessionId: BigInt(sessionId), member: member.address, signedAt: BigInt(signedAt) },
-        }),
-      });
-    expect(checkIn.status).toBe(409);
-    expect(checkIn.body.error.code).toBe('SESSION_CLOSED');
-    expect(await prisma.checkIn.count({ where: { sessionId: session.id } })).toBe(0);
-
-    finish('0xclose');
-    expect((await first).status).toBe(200);
-    expect(chainState.closeCalls).toBe(1);
   });
 });

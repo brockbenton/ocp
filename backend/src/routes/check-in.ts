@@ -5,10 +5,10 @@ import { authMiddleware } from '../middleware/auth';
 import { checkInLimiter } from '../middleware/rateLimit';
 import { validate } from '../middleware/validate';
 import { verifyQR } from '../services/qr.service';
-import { mintQueue } from '../lib/queue';
+import { getPauseState } from '../services/onchain.service';
 import prisma from '../lib/prisma';
 import logger from '../lib/logger';
-import { findSessionOr404, closingSessions } from '../lib/session';
+import { findSessionOr404 } from '../lib/session';
 import { chain, registryAddress } from '../lib/contract';
 import { CHECK_IN_TYPES, checkInDomain } from '../lib/typedData';
 import { findOrCreateMember } from '../services/identity.service';
@@ -81,13 +81,33 @@ router.post(
     const session = await findSessionOr404(qr.sessionId, res);
     if (!session) return;
 
-    if (session.closedAt || closingSessions.has(qr.sessionId)) {
+    if (session.closedAt || session.repStatus !== 'NONE') {
       res.status(409).json({ error: { code: 'SESSION_CLOSED', message: 'Session is closed' } });
       return;
     }
 
     if (session.onchainStatus !== 'CONFIRMED') {
       res.status(409).json({ error: { code: 'SESSION_NOT_READY', message: 'Session not yet confirmed on-chain' } });
+      return;
+    }
+
+    if (session.maxAttendees !== null) {
+      const taken = await prisma.checkIn.count({
+        where: { sessionId: session.id, mintStatus: { not: 'FAILED' } },
+      });
+      if (taken >= session.maxAttendees) {
+        res.status(409).json({ error: { code: 'SESSION_FULL', message: 'This session reached its attendee limit' } });
+        return;
+      }
+    }
+
+    // If the pause state cannot be read, accept the check-in: the relay retries the mint.
+    const pause = await getPauseState().catch((err: Error) => {
+      logger.warn({ msg: 'Could not read pause state', err: err.message });
+      return null;
+    });
+    if (pause?.paused) {
+      res.status(409).json({ error: { code: 'MINTING_PAUSED', message: 'Officers have paused check-ins' } });
       return;
     }
 
@@ -117,23 +137,9 @@ router.post(
       return;
     }
 
-    // 8. Queue the mint job
-    const job = await mintQueue.add(
-      'mint',
-      {
-        checkInId: checkIn.id,
-        memberAddress: checksummedAddress as `0x${string}`,
-        sessionIdOnchain: qr.sessionId,
-      },
-      {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 2000 },
-      },
-    );
-
+    // 8. The relay picks up PENDING check-ins and mints them in batches.
     logger.info({
-      msg: 'Check-in recorded, mint queued',
-      jobId: job.id,
+      msg: 'Check-in recorded',
       checkInId: checkIn.id,
       memberAddress: privyWalletAddress,
       sessionId: qr.sessionId,
@@ -142,7 +148,6 @@ router.post(
     res.status(202).json({
       data: {
         checkInId: checkIn.id,
-        jobId: job.id,
         sessionId: qr.sessionId,
         memberAddress: checksummedAddress,
         status: 'PENDING',
