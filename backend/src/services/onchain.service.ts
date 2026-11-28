@@ -172,11 +172,14 @@ export async function getProposalOnChain(proposalId: string) {
     publicClient.readContract({ ...governor(), functionName: 'proposalVotes', args: id }),
   ]);
   const name = PROPOSAL_STATES[state];
-  // `quorum(snapshot)` reverts until the snapshot is in the past.
-  const quorum =
-    name === 'Pending'
-      ? null
-      : await publicClient.readContract({ ...governor(), functionName: 'quorum', args: [snapshot] });
+  // `quorum(snapshot)` reverts until the snapshot is in the past, and a proposal can be
+  // cancelled before then.
+  const snapshotPassed =
+    name !== 'Pending' &&
+    (name !== 'Canceled' || snapshot < (await publicClient.getBlock()).timestamp);
+  const quorum = snapshotPassed
+    ? await publicClient.readContract({ ...governor(), functionName: 'quorum', args: [snapshot] })
+    : null;
   const [againstVotes, forVotes, abstainVotes] = votes;
   return {
     state: name,
@@ -203,7 +206,8 @@ export async function getVoteContext(proposalId: string, voter: string) {
   const [hasVoted, nonce, weight] = await Promise.all([
     hasVotedOnChain(proposalId, voter),
     publicClient.readContract({ ...governor(), functionName: 'nonces', args: [account] }),
-    proposal.state === 'Pending'
+    // No quorum yet means the snapshot, where voting power is read, is not in the past.
+    proposal.quorum === null
       ? Promise.resolve(0n)
       : publicClient.readContract({
           ...governor(),

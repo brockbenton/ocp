@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { formatUnits, keccak256, toBytes, encodeFunctionData } from 'viem';
+import { formatGwei, formatUnits, keccak256, toBytes, encodeFunctionData } from 'viem';
 import { actors, admin, bootstrapClub, client, keys, startChain, transact, warp, RPC, type Deployment } from './chain';
 
 vi.mock('@privy-io/server-auth', () => ({
@@ -26,8 +26,12 @@ vi.mock('@privy-io/server-auth', () => ({
 
 const CONFIRMATIONS = 2;
 const REP = 10n ** 18n;
-const database =
-  (process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/ocp_test') + '_e2e';
+const databaseUrl = new URL(
+  process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@localhost:5432/ocp_test',
+);
+// Suffix the database name itself, not any query string: this database is reset.
+databaseUrl.pathname += '_e2e';
+const database = databaseUrl.toString();
 
 type Actor = (typeof actors)['alice'];
 const lower = (actor: Actor) => actor.address.toLowerCase();
@@ -428,6 +432,27 @@ describe('club DAO end to end', () => {
     expect(vetoed.canceledAt).not.toBeNull();
   });
 
+  it('keeps a proposal cancelled before voting readable', async () => {
+    const proposal = await propose('Withdrawn', [
+      {
+        target: club.rep,
+        data: encodeFunctionData({
+          abi: m.abi.REP_ABI,
+          functionName: 'grant',
+          args: [actors.carol.address, 1n * REP, 'ipfs://reason'],
+        }),
+      },
+    ]);
+    await transact(actors.alice, club.governor, m.abi.GOVERNOR_ABI, 'cancel', proposal.execution);
+    await index();
+    expect(await proposalFromApi(proposal.id)).toMatchObject({ state: 'Canceled', quorum: null });
+    expect((await api.get('/api/v1/governance/proposals')).status).toBe(200);
+    const mine = await api
+      .get(`/api/v1/governance/proposals/${proposal.id}/my-vote`)
+      .set(as(actors.alice));
+    expect(mine.status).toBe(200);
+  });
+
   it('warns once about a session left open, without closing it', async () => {
     const id = await openSession('Forgotten');
     await m.alerts.warnOpenSessions(Date.now() + 365 * 86_400_000);
@@ -445,7 +470,12 @@ describe('club DAO end to end', () => {
       await m.relayWork.relayTick();
       const first = await m.prisma.relayTx.findFirstOrThrow({ where: { activeKey: { not: null } } });
       await new Promise((resolve) => setTimeout(resolve, 300));
+      // A node that fails the re-simulation must not get the mint cancelled.
+      const { publicClient } = await import('../../src/lib/contract');
+      const outage = vi.spyOn(publicClient, 'call').mockRejectedValueOnce(new Error('429'));
       await m.relayWork.relayTick();
+      expect(outage).toHaveBeenCalled();
+      outage.mockRestore();
       const replaced = await m.prisma.relayTx.findUniqueOrThrow({ where: { id: first.id } });
       expect(replaced.hashes).toHaveLength(2);
       expect(replaced.cancelled).toBe(false);
@@ -490,6 +520,56 @@ describe('club DAO end to end', () => {
       mintStatus: 'FAILED',
       failureReason: 'The session closed before the token was minted',
     });
+  });
+
+  /** Queues a check-in, has the network lose its mint, then lets the row go stale. */
+  async function loseMint(name: string, run: (tx: { id: string; nonce: number }) => Promise<void>) {
+    const id = await openSession(name);
+    expect((await checkIn(actors.alice, id)).status).toBe(202);
+    process.env.RELAY_STUCK_AFTER_MS = '200';
+    await admin.setAutomine(false);
+    try {
+      await m.relayWork.relayTick();
+      const row = await m.prisma.relayTx.findFirstOrThrow({ where: { activeKey: { not: null } } });
+      await admin.dropTransaction({ hash: row.hashes[0] as `0x${string}` });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await run(row);
+    } finally {
+      await admin.setAutomine(true);
+      delete process.env.RELAY_MAX_FEE_GWEI;
+      process.env.RELAY_STUCK_AFTER_MS = '60000';
+    }
+    await relayRound();
+    expect((await session(id)).checkIns[0].mintStatus).toBe('CONFIRMED');
+    expect(await m.prisma.relayTx.count({ where: { activeKey: { not: null } } })).toBe(0);
+  }
+
+  it('resends a transaction that is stuck at the fee ceiling', async () => {
+    await loseMint('At the ceiling', async ({ id }) => {
+      const first = await m.prisma.relayTx.findUniqueOrThrow({ where: { id } });
+      // No room left under the ceiling for a replacement.
+      process.env.RELAY_MAX_FEE_GWEI = formatGwei(BigInt(first.maxFeePerGas));
+      await m.relayWork.relayTick();
+      const resent = await m.prisma.relayTx.findUniqueOrThrow({ where: { id } });
+      expect(resent.hashes).toEqual(first.hashes);
+      await expect(client.getTransaction({ hash: first.hashes[0] as `0x${string}` })).resolves.toBeTruthy();
+      await admin.mine({ blocks: 1 });
+    });
+  });
+
+  it('releases work left in flight by a previous relay wallet', async () => {
+    let oldRow = '';
+    await loseMint('Rotated key', async ({ id, nonce }) => {
+      oldRow = id;
+      const previous = actors.bob.address;
+      await m.prisma.relayTx.update({
+        where: { id },
+        data: { sender: previous, activeKey: `${previous}:${nonce}` },
+      });
+      await admin.setAutomine(true);
+      await m.relayWork.relayTick();
+    });
+    expect((await m.prisma.relayTx.findUniqueOrThrow({ where: { id: oldRow } })).status).toBe('DROPPED');
   });
 
   it('turns check-ins away while minting is paused', async () => {

@@ -5,7 +5,9 @@
  * - A row is written (with the signed hash) before broadcasting, so a crash or restart
  *   resumes exactly where it was. A unique key on the nonce stops double use.
  * - The oldest unmined transaction is replaced with a higher fee once it is stuck, or
- *   cancelled (a zero-value transfer to self) if it would now revert.
+ *   cancelled (a zero-value transfer to self) if it would now revert. At the fee ceiling
+ *   it is sent again unchanged.
+ * - After a key rotation, work the previous wallet left unmined is released and re-sent.
  * - A result counts only after the configured number of confirmations.
  */
 import { Prisma, type RelayKind, type RelayTx } from '@prisma/client';
@@ -200,32 +202,39 @@ async function resolve(
 /** Re-signs the oldest stuck transaction with a higher fee, or cancels it. */
 async function replace(tx: RelayTx): Promise<void> {
   const payload = tx.payload as unknown as RelayPayload;
-  const fees = bumpedFees(
-    { maxFeePerGas: BigInt(tx.maxFeePerGas), maxPriorityFeePerGas: BigInt(tx.maxPriorityFeePerGas) },
-    await currentFees(),
-    settings.relayMaxFeePerGas,
-  );
+  const previous = {
+    maxFeePerGas: BigInt(tx.maxFeePerGas),
+    maxPriorityFeePerGas: BigInt(tx.maxPriorityFeePerGas),
+  };
+  const requestFor = (cancel: boolean) =>
+    cancel
+      ? { to: relayAccount.address, data: '0x' as Hex, gas: CANCEL_GAS }
+      : { to: payload.to, data: payload.data, gas: BigInt(tx.gas) };
+  const fees = bumpedFees(previous, await currentFees(), settings.relayMaxFeePerGas);
   if (!fees) {
     logger.error({
       msg: 'Relay tx is stuck at the fee ceiling; raise RELAY_MAX_FEE_GWEI or wait',
       nonce: tx.nonce,
       maxFeePerGas: tx.maxFeePerGas,
     });
-    await prisma.relayTx.update({ where: { id: tx.id }, data: { lastSentAt: new Date() } });
+    // The earlier broadcasts may never have reached the network (an empty wallet, an
+    // RPC outage), so send it again. The same inputs sign to the same transaction.
+    const same = await sign(tx.nonce, { ...requestFor(tx.cancelled), ...previous });
+    await prisma.relayTx.update({
+      where: { id: tx.id },
+      data: {
+        hashes: tx.hashes.includes(same.hash) ? undefined : { push: same.hash },
+        lastSentAt: new Date(),
+      },
+    });
+    await broadcast(same.raw, { nonce: tx.nonce, resend: true });
     return;
   }
 
-  let cancel = tx.cancelled;
-  if (!cancel) {
-    cancel = await simulate(payload.to, payload.data).then(
-      () => false,
-      () => true,
-    );
-  }
-  const request = cancel
-    ? { to: relayAccount.address, data: '0x' as Hex, gas: CANCEL_GAS }
-    : { to: payload.to, data: payload.data, gas: BigInt(tx.gas) };
-  const signed = await sign(tx.nonce, { ...request, ...fees });
+  // Cancel only if the chain rejects the call. A node that cannot answer says nothing.
+  const cancel =
+    tx.cancelled || (await simulate(payload.to, payload.data).then(() => false, isRevert));
+  const signed = await sign(tx.nonce, { ...requestFor(cancel), ...fees });
 
   await prisma.relayTx.update({
     where: { id: tx.id },
@@ -252,7 +261,7 @@ async function replace(tx: RelayTx): Promise<void> {
 /** Settles finished transactions and unsticks the head of the nonce queue. */
 export async function reconcile(handle: OutcomeHandler): Promise<void> {
   const active = await prisma.relayTx.findMany({
-    where: { sender: relayAccount.address, activeKey: { not: null } },
+    where: { activeKey: { not: null } },
     orderBy: { nonce: 'asc' },
   });
   if (active.length === 0) return;
@@ -274,6 +283,13 @@ export async function reconcile(handle: OutcomeHandler): Promise<void> {
       if (cancelled) await resolve(tx, { status: 'cancelled' }, handle);
       else if (receipt.status === 'success') await resolve(tx, { status: 'success', receipt }, handle);
       else await resolve(tx, { status: 'reverted' }, handle, 'Reverted on-chain');
+      continue;
+    }
+
+    if (tx.sender !== relayAccount.address) {
+      // This key cannot replace it. Re-sending the work is safe: each kind checks the
+      // chain first, in case the old transaction is mined after all.
+      if (stuck) await resolve(tx, { status: 'dropped' }, handle, 'Sent by a previous relay wallet');
       continue;
     }
 

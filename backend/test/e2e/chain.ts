@@ -78,7 +78,8 @@ function forgeScript(name: string, env: Record<string, string>): string {
     path.join(FOUNDRY_BIN, 'forge'),
     ['script', `script/${name}`, '--rpc-url', RPC, '--private-key', keys.deployer, '--broadcast', '--slow'],
     CONTRACTS,
-    env,
+    // Test broadcasts stay out of `broadcast/`, which holds the real deployment records.
+    { ...env, FOUNDRY_BROADCAST: 'data/e2e/broadcast' },
   );
 }
 
@@ -113,7 +114,6 @@ export async function startChain(): Promise<{ stop: () => void }> {
     stop: () => {
       anvil.kill();
       rmSync(path.join(CONTRACTS, 'data/e2e'), { recursive: true, force: true });
-      rmSync(path.join(CONTRACTS, 'broadcast'), { recursive: true, force: true });
     },
   };
 }
