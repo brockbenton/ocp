@@ -7,7 +7,7 @@ import { GOVERNOR_ABI } from '@/lib/abi';
 import { CHAIN, GOVERNOR_ADDRESS } from '@/lib/constants';
 import { publicClient } from '@/lib/chain';
 import { getMyVote, relayVote } from '@/lib/api/governance';
-import { requireIdentityToken } from '@/lib/api/client';
+import { ApiRequestError, requireIdentityToken } from '@/lib/api/client';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { ballotTypedData } from '@/lib/typedData';
 import { formatRep } from '@/lib/rep';
@@ -24,6 +24,10 @@ const POLL_MS = 5_000;
 const CHOICES = [1, 0, 2] as const;
 
 const storageKey = (proposalId: string, voter: string) => `ocp-vote:${proposalId}:${voter}`;
+
+/** The relay refuses a second ballot while an earlier one is still on its way. */
+const isVotePending = (error: unknown) =>
+  error instanceof ApiRequestError && error.code === 'VOTE_PENDING';
 
 interface VotePanelProps {
   proposal: Proposal;
@@ -93,8 +97,8 @@ export default function VotePanel({ proposal, title }: VotePanelProps) {
 
   // The clock starts as soon as there is a signature waiting, wherever it came from.
   useEffect(() => {
-    if (hasPending) setWaitingSince((since) => since ?? Date.now());
-  }, [hasPending]);
+    if (hasPending && waitingSince === null) setWaitingSince(Date.now());
+  }, [hasPending, waitingSince]);
 
   useEffect(() => {
     if (waitingSince === null || landed.data) return;
@@ -134,10 +138,23 @@ export default function VotePanel({ proposal, title }: VotePanelProps) {
       window.localStorage.setItem(storageKey(proposalId, voter), JSON.stringify(vote));
       setSigned(vote);
       setWaitingSince(Date.now());
-      await relayVote(
-        { proposalId, support, signature: vote.signature },
-        await requireIdentityToken(),
-      );
+      try {
+        await relayVote(
+          { proposalId, support, signature: vote.signature },
+          await requireIdentityToken(),
+        );
+      } catch (error) {
+        if (isVotePending(error)) {
+          // Ballot nonces are sequential: submitting this one by hand would cancel the
+          // earlier vote, so forget it and show whatever was signed before.
+          window.localStorage.removeItem(storageKey(proposalId, voter));
+          setSigned(null);
+          setChoice(null);
+          setWaitingSince(null);
+          setDiscarded(false);
+        }
+        throw error;
+      }
     },
   });
 
@@ -170,16 +187,17 @@ export default function VotePanel({ proposal, title }: VotePanelProps) {
     );
   }
   if (landed.data) {
+    // No choice is named: a signature held here may not be the one that was mined.
     return wrap(
       <p role="status" className="text-sm text-status-pos">
-        Your vote is on-chain
-        {signed ? `: ${SUPPORT_LABELS[signed.support]}` : ''}. Checked directly against the chain.
+        Your vote is on-chain. Checked directly against the chain.
       </p>,
     );
   }
 
   if (pending && state === 'Active') {
-    const relayFailed = !!cast.error || (!discarded && mine.data?.status === 'FAILED');
+    const relayError = isVotePending(cast.error) ? null : cast.error;
+    const relayFailed = !!relayError || (!discarded && mine.data?.status === 'FAILED');
     const overdue = waitingSince !== null && now - waitingSince >= LANDING_TIMEOUT_MS;
     const payload = JSON.stringify({
       proposalId: pending.proposalId,
@@ -198,7 +216,7 @@ export default function VotePanel({ proposal, title }: VotePanelProps) {
               Your vote hasn&apos;t landed. Have an officer submit it: send them the signed vote
               below. They can&apos;t change your choice. You can also submit it yourself if your
               wallet has a little ETH.
-              {cast.error && ` The relay said: ${txErrorMessage(cast.error)}`}
+              {relayError && ` The relay said: ${txErrorMessage(relayError)}`}
               {!discarded && mine.data?.failureReason && ` The relay said: ${mine.data.failureReason}`}
             </p>
             <textarea

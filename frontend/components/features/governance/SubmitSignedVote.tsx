@@ -49,7 +49,10 @@ async function check(text: string): Promise<Checked> {
   if (signer.toLowerCase() !== vote.voter.toLowerCase()) {
     throw new Error('The signature doesn’t match this member and choice. Ask them to sign again.');
   }
-  if (!matchesProposalId(proposal)) throw new Error('The proposal details don’t match its on-chain id.');
+  // The title shown must belong to the proposal this signature votes on.
+  if (proposal.proposalId !== vote.proposalId || !matchesProposalId(proposal)) {
+    throw new Error('The proposal details don’t match its on-chain id.');
+  }
   return { vote, title: proposalTitle(proposal.description) };
 }
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { getSessionDefaults, previewMetadata, syncSession } from '@/lib/api/admin';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { requireIdentityToken } from '@/lib/api/client';
@@ -42,9 +42,11 @@ const INPUT =
 export default function StartMeetingForm() {
   const router = useRouter();
   const sendTx = useWalletTx();
+  const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [day, setDay] = useState('');
-  const [cap, setCap] = useState('');
+  // Null until edited, so an emptied field stays empty while a new number is typed.
+  const [cap, setCap] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [startedNote, setStartedNote] = useState(false);
 
@@ -52,7 +54,7 @@ export default function StartMeetingForm() {
     queryKey: queryKeys.sessionDefaults(),
     queryFn: async () => getSessionDefaults(await requireIdentityToken()),
   });
-  const maxAttendees = cap === '' ? String(defaults?.suggestedMaxAttendees ?? '') : cap;
+  const maxAttendees = cap ?? String(defaults?.suggestedMaxAttendees ?? '');
 
   const review = useMutation({
     mutationFn: async (): Promise<Draft> => {
@@ -87,11 +89,16 @@ export default function StartMeetingForm() {
       return { sessionId: meeting.sessionId, synced };
     },
     onSuccess: ({ sessionId, synced }) => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.adminSessions() });
       if (synced) {
         router.push(`/admin/sessions/${sessionId}/qr`);
         return;
       }
-      // The meeting exists on-chain; it appears in the list once indexed.
+      // The meeting exists on-chain; it appears in the list once indexed. The form is
+      // cleared so it isn't started a second time.
+      setName('');
+      setDay('');
+      setCap(null);
       setDraft(null);
       setStartedNote(true);
     },

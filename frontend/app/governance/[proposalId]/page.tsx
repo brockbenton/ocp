@@ -14,12 +14,14 @@ import { queryKeys } from '@/lib/api/queryKeys';
 import { describeActions, matchesProposalId, proposalBody, proposalTitle } from '@/lib/proposals';
 import { formatRep } from '@/lib/rep';
 import { shortenAddress } from '@/lib/address';
+import { useEmbeddedAddress } from '@/hooks/useProfile';
 import type { Proposal } from '@/types';
 
 const when = (seconds: number) => new Date(seconds * 1000).toLocaleString('en-US');
 
 export default function ProposalPage() {
   const { proposalId } = useParams<{ proposalId: string }>();
+  const address = useEmbeddedAddress();
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: queryKeys.proposal(proposalId),
     queryFn: () => getProposal(proposalId),
@@ -73,7 +75,8 @@ export default function ProposalPage() {
         </ol>
       </section>
       <Tally proposal={data} />
-      <VotePanel proposal={data} title={title} />
+      {/* Keyed by wallet, so one account's signature is never shown to the next. */}
+      <VotePanel key={address} proposal={data} title={title} />
       <ProposalActions proposal={data} />
     </>
   );

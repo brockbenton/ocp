@@ -13,6 +13,7 @@ import {
   isHex,
   keccak256,
   parseUnits,
+  stringToBytes,
   toBytes,
   type Abi,
 } from 'viem';
@@ -26,7 +27,8 @@ export interface ProposalActions {
   calldatas: string[];
 }
 
-export const descriptionHash = (description: string) => keccak256(toBytes(description));
+/** Hashed as text, as the Governor does, even if it looks like hex. */
+export const descriptionHash = (description: string) => keccak256(stringToBytes(description));
 
 /** The id the Governor derives from a proposal's contents. */
 export function proposalIdOf(actions: ProposalActions, description: string): string {
@@ -64,6 +66,7 @@ export const proposalBody = (description: string) =>
 const ROLE_NAMES: Record<string, string> = {
   [keccak256(toBytes('ADMIN_ROLE'))]: 'officer',
   [keccak256(toBytes('RELAY_ROLE'))]: 'relay',
+  [keccak256(toBytes('MINTER_ROLE'))]: 'MINTER (can create Rep)',
   [`0x${'0'.repeat(64)}`]: 'DEFAULT ADMIN',
   [keccak256(toBytes('PROPOSER_ROLE'))]: 'PROPOSER',
   [keccak256(toBytes('CANCELLER_ROLE'))]: 'CANCELLER',
@@ -119,7 +122,11 @@ export function describeActions({ targets, values, calldatas }: ProposalActions)
         const text = sentence
           ? sentence(args, contract.label)
           : `Call ${functionName}(${args.map(String).join(', ')}) on the ${contract.label}`;
-        return { text: text + suffix, understood: true };
+        // A role without a name is shown as a hash, which nobody can judge.
+        const unknownRole =
+          (functionName === 'grantRole' || functionName === 'revokeRole') &&
+          !ROLE_NAMES[args[0] as string];
+        return { text: text + suffix, understood: !unknownRole };
       } catch {
         // Falls through to the raw form.
       }

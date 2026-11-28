@@ -111,7 +111,10 @@ describe('voting', () => {
 
     voted = true;
     await act(() => vi.advanceTimersByTimeAsync(6_000));
-    expect((await screen.findByRole('status')).textContent).toContain('Your vote is on-chain: For');
+    const status = (await screen.findByRole('status')).textContent;
+    // The signature held here may not be the mined one, so no choice is claimed.
+    expect(status).toContain('Your vote is on-chain.');
+    expect(status).not.toContain('For');
     vi.useRealTimers();
   });
 
@@ -175,6 +178,20 @@ describe('voting', () => {
       functionName: 'castVoteBySig',
       args: [BigInt(proposalId), 1, OFFICER, SIGNATURE],
     });
+  });
+
+  it('drops a second ballot while an earlier vote is still on its way', async () => {
+    api.failures['POST /governance/votes'] = [409, 'VOTE_PENDING'];
+    renderWithQuery(<ProposalPage />);
+    await choose('Against');
+    fireEvent.click(screen.getByRole('button', { name: 'Sign vote' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('VOTE_PENDING');
+    // Submitting it by hand would cancel the earlier vote, so it is neither offered nor kept.
+    expect(screen.queryByLabelText('Signed vote')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Submit it myself' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Against' })).toBeTruthy();
+    expect(window.localStorage.length).toBe(0);
   });
 
   it('refuses to show a vote button if the server alters the proposal', async () => {

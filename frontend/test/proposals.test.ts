@@ -1,4 +1,4 @@
-import { decodeFunctionData, encodeFunctionData } from 'viem';
+import { decodeFunctionData, encodeFunctionData, keccak256, toBytes } from 'viem';
 import { describe, expect, it } from 'vitest';
 import { REGISTRY_ABI } from '@/lib/abi';
 import { buildActions, describeActions, matchesProposalId, proposalIdOf } from '@/lib/proposals';
@@ -25,6 +25,13 @@ describe('proposal integrity', () => {
     expect(proposalIdOf(VECTOR, 'Appoint officer C')).toBe(VECTOR_ID);
   });
 
+  it('hashes a description that looks like hex as text', () => {
+    // Computed with `cast` from the bytes of the string "0xbeef".
+    expect(proposalIdOf(VECTOR, '0xbeef')).toBe(
+      '10972369644580825608509230893668820704871332424963390529074097514458393937801',
+    );
+  });
+
   it('detects any change to the text or the actions', () => {
     const proposal = { ...VECTOR, proposalId: VECTOR_ID, description: 'Appoint officer C' };
     expect(matchesProposalId(proposal)).toBe(true);
@@ -37,6 +44,24 @@ describe('proposal integrity', () => {
 });
 
 describe('decoding and templates', () => {
+  it('names the Rep minter role, and does not claim to understand an unnamed one', () => {
+    const grant = (role: string) =>
+      describeActions({
+        targets: [REGISTRY],
+        values: ['0'],
+        calldatas: [
+          encodeFunctionData({
+            abi: REGISTRY_ABI,
+            functionName: 'grantRole',
+            args: [keccak256(toBytes(role)), OTHER],
+          }),
+        ],
+      })[0];
+    expect(grant('MINTER_ROLE')).toMatchObject({ understood: true });
+    expect(grant('MINTER_ROLE').text).toContain('MINTER (can create Rep)');
+    expect(grant('SOMETHING_ELSE')).toMatchObject({ understood: false });
+  });
+
   it('grants the new officer before removing the old one', () => {
     const swap = buildActions('swap', { incoming: OFFICER, outgoing: OTHER });
     const calls = swap.calldatas.map((data) =>

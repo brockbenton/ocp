@@ -15,6 +15,7 @@ import { REGISTRY_ABI } from '@/lib/abi';
 import { CONTRACT_ADDRESS, REP_PER_ATTENDANCE } from '@/lib/constants';
 import { txErrorMessage } from '@/lib/txError';
 import { useWalletTx } from '@/hooks/useWalletTx';
+import type { CloseList } from '@/types';
 
 /** "End meeting": officer A closes the session with its attendee list; Rep becomes pending. */
 export default function CloseSessionPage() {
@@ -31,12 +32,19 @@ export default function CloseSessionPage() {
   const list = useQuery({
     queryKey: queryKeys.closeList(sessionId),
     queryFn: async () => getCloseList(sessionId, await requireIdentityToken()),
-    // Late check-ins finish minting while the officer reads the list.
-    refetchInterval: (query) => (query.state.data?.waiting ? 4_000 : false),
+    // Members can still check in, and late mints finish, while the officer reads the list.
+    refetchInterval: (query) => (query.state.data?.waiting ? 4_000 : 15_000),
   });
 
   const close = useMutation({
-    mutationFn: async (attendees: `0x${string}`[]) => {
+    mutationFn: async (shown: CloseList) => {
+      // The contract accepts any subset of holders, so closing with a stale list would
+      // leave the newest check-ins out for good.
+      const { data: latest } = await list.refetch({ throwOnError: true });
+      if (!latest || latest.attendees.join() !== shown.attendees.join() || latest.waiting > shown.waiting) {
+        throw new Error('The attendee list just changed. Check it, then confirm again.');
+      }
+      const { attendees } = shown;
       await sendTx({
         address: CONTRACT_ADDRESS,
         abi: REGISTRY_ABI,
@@ -71,7 +79,8 @@ export default function CloseSessionPage() {
     );
   }
 
-  const error = session.error ?? list.error;
+  // A failed background refresh keeps the list on screen; signing re-reads it anyway.
+  const error = session.error ?? (list.data ? null : list.error);
   return (
     <div className="space-y-6">
       <AdminPageHeader title="End meeting" caption={session.data?.name} />
@@ -127,7 +136,7 @@ export default function CloseSessionPage() {
             ) : confirming ? (
               <span role="group" aria-label="Confirm closing" className="flex items-center gap-3 text-sm">
                 <span className="text-content-secondary">Close for good?</span>
-                <button type="button" onClick={() => close.mutate(list.data.attendees)} className="font-medium text-status-neg">
+                <button type="button" onClick={() => close.mutate(list.data)} className="font-medium text-status-neg">
                   Yes, sign and close
                 </button>
                 <button type="button" onClick={() => setConfirming(false)} className="text-content-secondary">

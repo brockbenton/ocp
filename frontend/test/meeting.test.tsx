@@ -79,6 +79,27 @@ describe('starting a meeting', () => {
     expect(privy.sendTransaction).not.toHaveBeenCalled();
   });
 
+  it('lets the suggested cap be erased and retyped', async () => {
+    renderWithQuery(<SessionsPage />);
+    const cap = (await screen.findByLabelText('Maximum attendees')) as HTMLInputElement;
+    await waitFor(() => expect(cap.value).toBe('45'));
+    fireEvent.change(cap, { target: { value: '' } });
+    expect(cap.value).toBe('');
+    fireEvent.change(cap, { target: { value: '5' } });
+    expect(cap.value).toBe('5');
+  });
+
+  it('clears the form and reloads the list when the mirror lags behind a new meeting', async () => {
+    await review();
+    // No sync route: the backend does not see the session yet.
+    const listed = () => api.calls.filter((c) => c.key === 'GET /admin/sessions').length;
+    const before = listed();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign and start' }));
+    expect(await screen.findByText(/It will appear in the list/)).toBeTruthy();
+    await waitFor(() => expect(listed()).toBeGreaterThan(before));
+    expect((screen.getByLabelText('Meeting name') as HTMLInputElement).value).toBe('');
+  });
+
   it('signs createSession with the reviewed cap and CID, then opens the QR', async () => {
     await review();
     api.routes['GET /admin/sessions'] = [];
@@ -156,6 +177,22 @@ describe('ending a meeting', () => {
     renderWithQuery(<CloseSessionPage />);
     expect((await screen.findByRole('status')).textContent).toContain('2 check-in(s) are still being minted');
     expect(screen.getByText(/1 check-in\(s\) failed/)).toBeTruthy();
+  });
+
+  it('will not sign a list that changed since it was shown', async () => {
+    renderWithQuery(<CloseSessionPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'End meeting' }));
+    // A late member's token lands after the officer read the list.
+    const late = getAddress('0x00000000000000000000000000000000000000cc');
+    api.routes['GET /admin/sessions/42/close-list'] = { sessionId: '42', attendees: [A, B, late], waiting: 0, failed: 0 };
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, sign and close' }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain('list just changed');
+    expect(await screen.findByText(late)).toBeTruthy();
+    expect(privy.sendTransaction).not.toHaveBeenCalled();
+
+    await confirmClose();
+    await waitFor(() => expect(sent()).toEqual([{ functionName: 'closeSession', args: [42n, [A, B, late]] }]));
   });
 
   it('offers no close action for a closed session', async () => {

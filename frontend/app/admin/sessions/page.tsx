@@ -44,6 +44,8 @@ export default function AdminSessionsPage() {
     },
     enabled: authenticated,
     retry: retryUnlessForbidden,
+    // Picks up meetings the backend indexes a moment after they are signed.
+    refetchInterval: 15_000,
   });
 
   const expanded = sessions?.find((s) => s.id === expandedId);
