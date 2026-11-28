@@ -114,6 +114,18 @@ export async function getPauseState() {
   };
 }
 
+/** One session's token balance for many members, in a single call. */
+export async function tokenBalancesOnChain(
+  members: string[],
+  sessionIdOnchain: string,
+): Promise<readonly bigint[]> {
+  return publicClient.readContract({
+    ...registry(),
+    functionName: 'balanceOfBatch',
+    args: [members.map((m) => getAddress(m)), members.map(() => BigInt(sessionIdOnchain))],
+  });
+}
+
 // ── Rep ──────────────────────────────────────────────────────────────────
 
 export interface RepSnapshot {

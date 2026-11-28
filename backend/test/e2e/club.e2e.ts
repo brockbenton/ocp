@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { formatGwei, formatUnits, keccak256, toBytes, encodeFunctionData } from 'viem';
+import { formatGwei, formatUnits, keccak256, stringToBytes, toBytes, encodeFunctionData } from 'viem';
 import { actors, admin, bootstrapClub, client, keys, startChain, transact, warp, RPC, type Deployment } from './chain';
 
 vi.mock('@privy-io/server-auth', () => ({
@@ -198,7 +198,7 @@ async function propose(description: string, calls: { target: `0x${string}`; data
   await transact(actors.alice, club.governor, m.abi.GOVERNOR_ABI, 'propose', args);
   await index();
   const row = await m.prisma.proposal.findFirstOrThrow({ where: { description } });
-  const execution = [args[0], args[1], args[2], keccak256(toBytes(description))];
+  const execution = [args[0], args[1], args[2], keccak256(stringToBytes(description))];
   return { id: row.proposalId, operationId: row.operationId as `0x${string}`, execution };
 }
 
@@ -409,7 +409,8 @@ describe('club DAO end to end', () => {
   });
 
   it('records a guardian veto from the Timelock', async () => {
-    const proposal = await propose('Grant Rep to carol', [
+    // A description that looks like hex is still hashed as text, here and by the Governor.
+    const proposal = await propose('0xbeef', [
       {
         target: club.rep,
         data: encodeFunctionData({

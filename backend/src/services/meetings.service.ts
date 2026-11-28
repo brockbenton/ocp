@@ -3,7 +3,7 @@ import { getAddress } from 'viem';
 import { currentRegistry } from '../lib/session';
 import { serializeSession } from '../lib/serialize';
 import prisma from '../lib/prisma';
-import { tokenBalanceOnChain } from './onchain.service';
+import { tokenBalancesOnChain } from './onchain.service';
 import { flagsFor, pendingSessions } from './review.service';
 
 const MAX_ATTENDEES = 300;
@@ -33,12 +33,13 @@ export async function getAttendeeList(session: Session) {
     where: { sessionId: session.id },
     select: { mintStatus: true, member: { select: { walletAddress: true } } },
   });
-  const holding = await Promise.all(
-    checkIns.map(async (c) =>
-      (await tokenBalanceOnChain(c.member.walletAddress, session.sessionIdOnchain)) > 0n
-        ? getAddress(c.member.walletAddress)
-        : null,
-    ),
+  // One call: officers keep this list open, and it can hold 300 wallets.
+  const balances = await tokenBalancesOnChain(
+    checkIns.map((c) => c.member.walletAddress),
+    session.sessionIdOnchain,
+  );
+  const holding = checkIns.map((c, i) =>
+    balances[i] > 0n ? getAddress(c.member.walletAddress) : null,
   );
   const attendees = holding
     .filter((a) => a !== null)

@@ -9,7 +9,7 @@ import {
   decodeEventLog,
   keccak256,
   pad,
-  toBytes,
+  stringToBytes,
   toHex,
   zeroHash,
   type Abi,
@@ -48,7 +48,7 @@ export function operationIdFor(
   description: string,
 ): `0x${string}` {
   const salt = toHex(
-    BigInt(pad(governor, { dir: 'right', size: 32 })) ^ BigInt(keccak256(toBytes(description))),
+    BigInt(pad(governor, { dir: 'right', size: 32 })) ^ BigInt(keccak256(stringToBytes(description))),
     { size: 32 },
   );
   return keccak256(
