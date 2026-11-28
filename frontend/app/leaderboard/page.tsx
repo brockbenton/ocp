@@ -14,17 +14,18 @@ import { useEmbeddedAddress } from '@/hooks/useProfile';
 import LoadError from '@/components/shared/LoadError';
 import type { LeaderboardEntry } from '@/types';
 import { CLUB_NAME } from '@/lib/constants';
+import { formatAsOf, formatRep } from '@/lib/rep';
 
-const CLUB_SUBTITLE = `${CLUB_NAME} · ranked by tokens earned, then streak.`;
+const CLUB_SUBTITLE = `${CLUB_NAME} · ranked by current Rep. Attendance is lifetime history.`;
 const PODIUM_COUNT = 3;
 const WINNER_AVATAR_SIZE = 72;
 const PODIUM_AVATAR_SIZE = 60;
 const ROW_AVATAR_SIZE = 32;
 
-const EMPTY_TEXT = 'No tokens minted yet. Check in at a meeting to get on the board.';
+const EMPTY_TEXT = 'Nobody is on the board yet. Check in at a meeting to get on it.';
 
 const TABLE_COLS =
-  'grid min-w-[560px] grid-cols-[56px_1fr_120px_120px_100px] items-center gap-3';
+  'grid min-w-[660px] grid-cols-[56px_1fr_100px_90px_100px_80px] items-center gap-3';
 const HEADER_CELL = 'font-mono text-xs text-content-secondary';
 
 const MOBILE_PODIUM_AVATAR_SIZE = 44;
@@ -32,10 +33,6 @@ const MOBILE_WINNER_AVATAR_SIZE = 56;
 const MOBILE_ROW_AVATAR_SIZE = 28;
 
 const MOBILE_ROW_COLS = 'grid grid-cols-[24px_1fr_auto] items-center gap-2.5 px-3.5';
-
-function fmt(n: number): string {
-  return n.toLocaleString('en-US');
-}
 
 function PodiumCard({
   entry,
@@ -63,7 +60,7 @@ function PodiumCard({
         <div className="mb-1 text-[17px] font-semibold leading-tight">{entry.handle}</div>
         <div className="font-mono text-[11px] text-status-warn">{entry.streak} streak</div>
         <MonoNum className="mt-3.5 block text-[26px] font-bold leading-none">
-          {fmt(entry.tokens)}
+          {formatRep(entry.rep)}
         </MonoNum>
       </div>
     );
@@ -79,7 +76,7 @@ function PodiumCard({
         {entry.streak} streak
       </div>
       <MonoNum className="mt-3.5 block text-[22px] font-bold leading-none">
-        {fmt(entry.tokens)}
+        {formatRep(entry.rep)}
       </MonoNum>
     </div>
   );
@@ -110,7 +107,8 @@ function TableRow({ entry }: { entry: LeaderboardEntry }) {
       <MonoNum className={cn('text-right text-[13px] font-semibold', txt)}>
         {entry.attendancePct}%
       </MonoNum>
-      <MonoNum className={cn('text-right text-[13px] font-bold', txt)}>{fmt(entry.tokens)}</MonoNum>
+      <MonoNum className={cn('text-right text-[13px] font-semibold', txt)}>{entry.tokens}</MonoNum>
+      <MonoNum className={cn('text-right text-[13px] font-bold', txt)}>{formatRep(entry.rep)}</MonoNum>
     </div>
   );
 }
@@ -138,7 +136,7 @@ function MobilePodiumTile({ entry, winner }: { entry: LeaderboardEntry; winner: 
           className="mx-auto mb-1.5"
         />
         <div className="truncate text-[13px] font-semibold leading-none">{entry.handle}</div>
-        <MonoNum className="mt-1 block text-[14px] font-bold leading-none">{fmt(entry.tokens)}</MonoNum>
+        <MonoNum className="mt-1 block text-[14px] font-bold leading-none">{formatRep(entry.rep)}</MonoNum>
       </div>
     );
   }
@@ -150,7 +148,7 @@ function MobilePodiumTile({ entry, winner }: { entry: LeaderboardEntry; winner: 
         className="mx-auto mb-1.5"
       />
       <div className="truncate text-[12px] font-semibold leading-none">{entry.handle}</div>
-      <MonoNum className="mt-1 block text-[13px] font-bold leading-none">{fmt(entry.tokens)}</MonoNum>
+      <MonoNum className="mt-1 block text-[13px] font-bold leading-none">{formatRep(entry.rep)}</MonoNum>
       <div className="mt-[3px] font-mono text-[10px] font-bold text-content-secondary">
         {entry.rankLabel}
       </div>
@@ -173,7 +171,7 @@ function MobileRow({ entry, first }: { entry: LeaderboardEntry; first: boolean }
         <Avatar seed={entry.avatarSeed} size={MOBILE_ROW_AVATAR_SIZE} />
         <span className={cn('truncate text-[13px] font-semibold', txt)}>{entry.handle}</span>
       </div>
-      <MonoNum className={cn('text-[12px] font-bold', txt)}>{fmt(entry.tokens)}</MonoNum>
+      <MonoNum className={cn('text-[12px] font-bold', txt)}>{formatRep(entry.rep)}</MonoNum>
     </div>
   );
 }
@@ -206,7 +204,8 @@ export default function LeaderboardPage() {
     queryFn: () => getLeaderboard(address),
   });
 
-  const entries = data ?? [];
+  const entries = data?.entries ?? [];
+  const asOf = formatAsOf(data?.repAsOf);
   const hasPodium = entries.length >= PODIUM_COUNT;
   const podium = hasPodium ? entries.slice(0, PODIUM_COUNT) : [];
   const rows = hasPodium ? entries.slice(PODIUM_COUNT) : entries;
@@ -226,6 +225,7 @@ export default function LeaderboardPage() {
           <div>
             <h1 className="mb-2 text-[30px] font-medium leading-9">Leaderboard</h1>
             <p className="text-sm leading-5 text-content-secondary">{CLUB_SUBTITLE}</p>
+            {asOf && <p className="mt-1 font-mono text-xs text-content-secondary">Rep {asOf}</p>}
           </div>
         </div>
 
@@ -261,6 +261,7 @@ export default function LeaderboardPage() {
                   <span className={cn(HEADER_CELL, 'text-right')}>Streak</span>
                   <span className={cn(HEADER_CELL, 'text-right')}>Attendance</span>
                   <span className={cn(HEADER_CELL, 'text-right')}>Tokens</span>
+                  <span className={cn(HEADER_CELL, 'text-right')}>Rep</span>
                 </div>
                 {rows.map((entry) => (
                   <TableRow key={entry.rank} entry={entry} />
@@ -273,6 +274,7 @@ export default function LeaderboardPage() {
 
       <div className="px-5 pb-24 pt-5 md:hidden">
         <h1 className="text-[22px] font-medium leading-[28px]">Leaderboard</h1>
+        <p className="mt-1 font-mono text-xs text-content-secondary">Ranked by Rep {asOf}</p>
 
         {error ? (
           <LoadError what="leaderboard" onRetry={() => void refetch()} />

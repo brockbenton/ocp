@@ -7,6 +7,8 @@ import { createServer, type Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { formatGwei, formatUnits, keccak256, stringToBytes, toBytes, encodeFunctionData } from 'viem';
+// What the browser signs when voting.
+import * as browser from '../../../frontend/lib/typedData';
 import { actors, admin, bootstrapClub, client, keys, startChain, transact, warp, RPC, type Deployment } from './chain';
 
 vi.mock('@privy-io/server-auth', () => ({
@@ -376,12 +378,22 @@ describe('club DAO end to end', () => {
     expect(mine.body.data.status).toBe('CONFIRMED');
     expect((await post(actors.alice, 1, signature)).body.error.code).toBe('ALREADY_VOTED');
 
-    // Censorship fallback: an officer submits bob's signed vote without the backend.
+    // Censorship fallback: an officer submits bob's signed vote without the backend. Bob
+    // signs exactly the request the browser builds, so this also checks the app's ballot.
+    const request = browser.ballotTypedData(31337, club.governor, {
+      proposalId: election.id,
+      support: 1,
+      voter: actors.bob.address,
+      nonce: '0',
+    });
+    const browserSignature = await actors.bob.signTypedData(
+      JSON.parse(JSON.stringify(request)) as Parameters<typeof actors.bob.signTypedData>[0],
+    );
     await transact(actors.officerA, club.governor, m.abi.GOVERNOR_ABI, 'castVoteBySig', [
       BigInt(election.id),
       1,
       actors.bob.address,
-      await signBallot(actors.bob, election.id, 1),
+      browserSignature,
     ]);
     await index();
     const votes = (await api.get(`/api/v1/governance/proposals/${election.id}/votes`)).body.data;
@@ -404,6 +416,7 @@ describe('club DAO end to end', () => {
       lower(actors.officerC),
     );
     expect(overview.guardian).toMatchObject({ address: lower(actors.guardian), active: true });
+    expect(overview.repHalfLifeSeconds).toBe(180 * 86_400);
     // The new officer can use the dashboard straight away.
     expect((await api.get('/api/v1/admin/me').set(as(actors.officerC))).status).toBe(200);
   });

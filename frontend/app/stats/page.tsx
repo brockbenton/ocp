@@ -5,6 +5,8 @@ export const dynamic = 'force-dynamic';
 import { useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { useEmbeddedAddress } from '@/hooks/useProfile';
+import RepCard from '@/components/features/member/RepCard';
+import { Badge } from '@/components/ui';
 import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
@@ -71,6 +73,8 @@ export default function StatsPage() {
 function StatsBody({ stats }: { stats: PersonalStats }) {
   return (
     <div className="space-y-10">
+      <RepCard address={stats.walletAddress} />
+
       <section className="rounded-2xl bg-surface border border-line p-6 sm:p-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
           <div>
@@ -84,12 +88,13 @@ function StatsBody({ stats }: { stats: PersonalStats }) {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={stats.badgeUrl} alt={stats.statusTier} className="w-14 h-14 rounded-xl shrink-0" />
-            <div className="flex flex-col items-start gap-1.5">
-              {stats.foundingMember && <Badge tone="amber">Founding Member</Badge>}
-              <Badge tone={stats.statusTier === 'Official Member' ? 'blue' : 'gray'}>{stats.statusTier}</Badge>
-            </div>
+            {stats.badgeUrl && (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={stats.badgeUrl} alt="Founding Member" className="w-14 h-14 rounded-xl shrink-0" />
+                <Badge tone="warn">Founding Member</Badge>
+              </>
+            )}
           </div>
         </div>
         <ProgressBar pct={stats.allTimeAttendancePct} />
@@ -167,19 +172,6 @@ function ProgressBar({ pct }: { pct: number }) {
     <div className="mt-6 h-2 w-full rounded bg-raised overflow-hidden">
       <div className={`h-full rounded ${color}`} style={{ width: `${clamped}%` }} />
     </div>
-  );
-}
-
-function Badge({ children, tone }: { children: React.ReactNode; tone: 'amber' | 'blue' | 'gray' }) {
-  const styles = {
-    amber: 'bg-status-warn-bg text-status-warn',
-    blue: 'bg-status-info-bg text-cyan',
-    gray: 'bg-raised text-content-secondary',
-  }[tone];
-  return (
-    <span className={`inline-flex items-center rounded px-3 py-1 text-xs font-semibold ${styles}`}>
-      {children}
-    </span>
   );
 }
 

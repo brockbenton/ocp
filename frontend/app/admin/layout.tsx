@@ -9,13 +9,15 @@ import Link from 'next/link';
 import { ApiRequestError } from '@/lib/api/client';
 import Brand from '@/components/shared/Brand';
 import RoleSwitch from '@/components/shared/RoleSwitch';
+import BootstrapBanner from '@/components/shared/BootstrapBanner';
 import { useAdminMe } from '@/hooks/useAdminMe';
 
 const NAV = [
   { href: '/admin', label: 'Overview', exact: true },
   { href: '/admin/sessions', label: 'Sessions', exact: false },
+  { href: '/admin/review', label: 'Review', exact: false },
   { href: '/admin/members', label: 'Members', exact: false },
-  { href: '/admin/roles', label: 'Roles', exact: false },
+  { href: '/admin/roles', label: 'Officers', exact: false },
 ];
 
 const QR_ROUTE = /^\/admin\/sessions\/[^/]+\/qr$/;
@@ -84,7 +86,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           </div>
         </header>
         <main className="min-h-0 flex-1 overflow-auto p-6 md:p-12">
-          <div className="mx-auto w-full max-w-6xl">{children}</div>
+          <div className="mx-auto w-full max-w-6xl space-y-6">
+            <BootstrapBanner />
+            {children}
+          </div>
         </main>
       </div>
     </div>

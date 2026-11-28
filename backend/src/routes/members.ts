@@ -10,6 +10,7 @@ import {
   buildMemberStats,
   buildMemberVault,
   buildPersonalStats,
+  repOnlyWallets,
 } from '../services/stats.service';
 import { buildMemberRep, getRepSnapshotCached } from '../services/rep.service';
 import { findOrCreateMember } from '../services/identity.service';
@@ -100,16 +101,30 @@ router.patch(
 
 router.get('/', async (_req: Request, res: Response): Promise<void> => {
   const { members, totalSessions, currentSemester } = await buildMemberStats(false);
-  const snapshot = await getRepSnapshotCached(members.map((m) => m.walletAddress));
-  const repOf = (wallet: string) => snapshot?.balances.get(wallet) ?? null;
-
   // joinedAt is account metadata rather than attendance, so it stays behind the
   // admin gate alongside linkedAccount and the internal id.
-  const publicMembers = members
-    .map(({ linkedAccount: _linkedAccount, id: _id, joinedAt: _joinedAt, ...rest }) => ({
-      ...rest,
-      rep: repOf(rest.walletAddress),
-    }))
+  const directory = members.map(
+    ({ linkedAccount: _linkedAccount, id: _id, joinedAt: _joinedAt, ...rest }) => rest,
+  );
+  const others = await repOnlyWallets(directory.map((m) => m.walletAddress));
+  directory.push(
+    ...others.map((walletAddress) => ({
+      walletAddress,
+      foundingMember: false,
+      tokensEarned: 0,
+      allTimeAttendancePct: 0,
+      currentSemesterAttendancePct: 0,
+      lastSeen: null,
+      currentStreak: 0,
+      recentAttendance: [],
+    })),
+  );
+
+  const snapshot = await getRepSnapshotCached(directory.map((m) => m.walletAddress));
+  const repOf = (wallet: string) => snapshot?.balances.get(wallet) ?? null;
+
+  const publicMembers = directory
+    .map((member) => ({ ...member, rep: repOf(member.walletAddress) }))
     // A stable sort keeps the attendance order between members with equal Rep.
     .sort((a, b) => {
       const difference = BigInt(b.rep ?? 0) - BigInt(a.rep ?? 0);

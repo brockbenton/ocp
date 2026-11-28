@@ -1,8 +1,8 @@
 # Frontend — Rules & Conventions
 
-## Phase 5 v1 target: participation reputation
+## Phase 5 (club DAO)
 
-Follow `../MASTER_PLAN.md` for the planned DAO.
+Follow `../MASTER_PLAN.md`. Officers run meetings and members vote from their own wallets.
 
 ## Stack
 - **Next.js 14** (App Router, `app/` directory)
@@ -16,7 +16,8 @@ Follow `../MASTER_PLAN.md` for the planned DAO.
 ```
 frontend/
   app/                    # Next.js App Router pages
-    admin/                # Admin-only pages (role-gated)
+    admin/                # Officer pages (role-gated): meetings, review, members, officers
+    governance/           # Proposals and voting
     check-in/             # QR scan + check-in flow
     vault/                # Member's token gallery
     stats/                # Personal attendance stats
@@ -45,8 +46,18 @@ frontend/
 - Query keys are defined as constants in `lib/api/queryKeys.ts`.
 
 ### Contract Interaction
-- The frontend does not read or write the contract today. Minting goes through the backend relay.
-- The contract address comes from `CONTRACT_ADDRESS` in `lib/constants.ts` (env var, never hardcoded).
+- Read the chain through `publicClient` (`lib/chain.ts`): it is independent of the backend,
+  which matters for checks like `hasVoted`.
+- Send transactions only with `useWalletTx` (simulates first, shows Privy's confirmation,
+  waits for the receipt). Attendance minting still goes through the backend relay.
+- ABIs are generated into `lib/abi.ts` by `backend/scripts/sync-abi.ts`. Never edit it.
+- Contract addresses come from `lib/constants.ts` (env vars, never hardcoded).
+- Describe proposals from their calldata (`lib/proposals.ts`) and verify the proposal id
+  before asking anyone to sign.
+
+### Signing
+- Keep Privy's confirmation on (`showWalletUIs: true`) and say in plain words what is being
+  signed. **Never enable delegated actions or session signers** (a test enforces this).
 
 ### Auth / Wallet
 - Use `usePrivy()` and `useWallets()` from Privy everywhere. Never access `window.ethereum` directly.
@@ -68,7 +79,10 @@ frontend/
 ## Environment Variables
 ```
 NEXT_PUBLIC_PRIVY_APP_ID
-NEXT_PUBLIC_CONTRACT_ADDRESS
+NEXT_PUBLIC_CONTRACT_ADDRESS     # AttendanceRegistry2
+NEXT_PUBLIC_REP_ADDRESS
+NEXT_PUBLIC_GOVERNOR_ADDRESS
+NEXT_PUBLIC_TIMELOCK_ADDRESS
 NEXT_PUBLIC_API_URL
+NEXT_PUBLIC_RPC_URL              # Optional; defaults to the chain's public RPC
 ```
-

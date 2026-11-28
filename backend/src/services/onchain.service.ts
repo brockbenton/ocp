@@ -233,7 +233,7 @@ export async function getVoteContext(proposalId: string, voter: string) {
 /** Guardian status and the bounded governance settings, for the club overview. */
 export async function getGovernanceInfo() {
   const read = <T>(value: Promise<T>) => value;
-  const [guardian, guardianExpiry, minDelay, importFinalized, threshold, delay, period, numerator] =
+  const [guardian, guardianExpiry, minDelay, importFinalized, threshold, delay, period, numerator, halfLife] =
     await Promise.all([
       read(publicClient.readContract({ ...timelock(), functionName: 'GUARDIAN' })),
       read(publicClient.readContract({ ...timelock(), functionName: 'GUARDIAN_EXPIRY' })),
@@ -243,6 +243,7 @@ export async function getGovernanceInfo() {
       read(publicClient.readContract({ ...governor(), functionName: 'votingDelay' })),
       read(publicClient.readContract({ ...governor(), functionName: 'votingPeriod' })),
       read(publicClient.readContract({ ...governor(), functionName: 'quorumNumerator', args: [] })),
+      read(publicClient.readContract({ ...rep(), functionName: 'HALF_LIFE' })),
     ]);
   const guardianActive = await publicClient.readContract({
     ...timelock(),
@@ -257,6 +258,7 @@ export async function getGovernanceInfo() {
     votingPeriodSeconds: Number(period),
     quorumNumerator: Number(numerator),
     timelockDelaySeconds: Number(minDelay),
+    repHalfLifeSeconds: Number(halfLife),
   };
 }
 

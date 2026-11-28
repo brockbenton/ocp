@@ -52,3 +52,25 @@ export function checkInTypedData(
     message,
   };
 }
+
+/** What a member signs to vote: OpenZeppelin Governor's `Ballot`. */
+export function ballotTypedData(
+  chainId: number,
+  governor: `0x${string}`,
+  message: { proposalId: string; support: number; voter: string; nonce: string },
+) {
+  return {
+    domain: { name: 'OCP Club Governor', version: '1', chainId, verifyingContract: governor },
+    types: {
+      EIP712Domain: EIP712_DOMAIN_TYPE,
+      Ballot: [
+        { name: 'proposalId', type: 'uint256' },
+        { name: 'support', type: 'uint8' },
+        { name: 'voter', type: 'address' },
+        { name: 'nonce', type: 'uint256' },
+      ],
+    },
+    primaryType: 'Ballot',
+    message,
+  };
+}

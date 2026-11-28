@@ -33,6 +33,9 @@ export default function AppProviders({ children }: AppProvidersProps) {
             accentColor: '#22D974',
           },
           embeddedWallets: {
+            // Members confirm every signature and transaction themselves. Never enable
+            // delegated actions or session signers: they would let a server sign (#70).
+            showWalletUIs: true,
             ethereum: {
               createOnLogin: 'users-without-wallets',
             },

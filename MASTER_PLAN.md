@@ -512,9 +512,11 @@ Implemented and tested; **not deployed, not audited**.
 - Covered end to end on a local chain by `backend/test/e2e`.
 
 **5c — Frontend**
-- [ ] Officer meeting flow (organizer sets `maxAttendees`, create tx, auto-refreshing 5-min QR, close tx with attendee list, second-officer review queue with confirm/reject, pause/unpause, ETH balance); open-sessions list with 6 h warning; member pending-approval / approved-awaiting-credit states; current decayed influence + separate lifetime attendance
-- [ ] Governance UI (proposals, templates, gasless voting, public-RPC `hasVoted`, queue/execute, officer-submit fallback)
-- [ ] Officer roster, bootstrap banner, real Rep/leaderboard; remove `lib/mock/*`
+- [x] Officer meeting flow (organizer sets `maxAttendees`, create tx, auto-refreshing 5-min QR, close tx with attendee list, second-officer review queue with confirm/reject, pause/unpause, ETH balance); open-sessions list with 6 h warning; member pending-approval / approved-awaiting-credit states; current decayed influence + separate lifetime attendance
+- [x] Governance UI (proposals, templates, gasless voting, public-RPC `hasVoted`, queue/execute, officer-submit fallback)
+- [x] Officer roster, bootstrap banner, real Rep/leaderboard; remove `lib/mock/*`
+
+5c is tested with a mocked wallet; it still needs manual QA with a real Privy account on Sepolia (#70).
 
 **5d — Sepolia pilot**
 - [ ] Freeze the legacy registry, then `DeployClub` + `importLegacy` + `finalizeImport`, then the deployer renounces

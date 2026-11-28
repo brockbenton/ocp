@@ -3,10 +3,18 @@ if (!process.env.NEXT_PUBLIC_PRIVY_APP_ID) {
   throw new Error('NEXT_PUBLIC_PRIVY_APP_ID is required. Set it in frontend/.env.local.');
 }
 
-// Check-in signatures are bound to the registry, so a wrong or missing address would
-// make every check-in fail. Same value as the backend's CONTRACT_ADDRESS.
-if (!/^0x[0-9a-fA-F]{40}$/.test(process.env.NEXT_PUBLIC_CONTRACT_ADDRESS ?? '')) {
-  throw new Error('NEXT_PUBLIC_CONTRACT_ADDRESS must be the registry address. Set it in frontend/.env.local.');
+// The app signs for and sends transactions to these contracts, so a wrong or missing
+// address must fail the build. Same values as the backend's.
+for (const name of [
+  'NEXT_PUBLIC_CONTRACT_ADDRESS',
+  'NEXT_PUBLIC_REP_ADDRESS',
+  'NEXT_PUBLIC_GOVERNOR_ADDRESS',
+  'NEXT_PUBLIC_TIMELOCK_ADDRESS',
+]) {
+  // Each is read by literal name elsewhere so Next.js can inline it.
+  if (!/^0x[0-9a-fA-F]{40}$/.test(process.env[name] ?? '')) {
+    throw new Error(`${name} must be a contract address. Set it in frontend/.env.local.`);
+  }
 }
 
 // No script/connect CSP on purpose: Privy loads its own iframe and endpoints, and

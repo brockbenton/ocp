@@ -14,6 +14,8 @@ import { colorNameForTopic } from '@/lib/tokenArt';
 import { getLeaderboard, getMemberVault, getPersonalStats } from '@/lib/api/members';
 import { queryKeys } from '@/lib/api/queryKeys';
 import { useEmbeddedAddress } from '@/hooks/useProfile';
+import RepCard from '@/components/features/member/RepCard';
+import { formatRep } from '@/lib/rep';
 import type { LeaderboardEntry, MemberVault, PersonalStats, VaultToken } from '@/types';
 import { CLUB_NAME } from '@/lib/constants';
 
@@ -28,15 +30,15 @@ const SCAN_LABEL = '[ check in ]';
 
 const STREAK_HINT = 'Consecutive meetings attended';
 const ATTENDANCE_HINT = 'This semester';
-const RANK_HINT = 'By tokens earned';
+const RANK_HINT = 'By current Rep';
 
 const HOME_TITLE = 'Home';
 const VIEW_ALL = 'View all →';
 const VAULT_PREVIEW_COUNT = 4;
 
 const LEADERBOARD_TITLE = 'Leaderboard';
-const LEADERBOARD_TIMEFRAME_LABEL = 'All time';
-const LEADERBOARD_SUBTITLE = 'Ranked by tokens earned, then streak';
+const LEADERBOARD_TIMEFRAME_LABEL = 'Rep';
+const LEADERBOARD_SUBTITLE = 'Ranked by current Rep';
 const LEADERBOARD_PREVIEW_COUNT = 3;
 const LEADERBOARD_AVATAR_SIZE = 32;
 
@@ -61,8 +63,6 @@ const MOBILE_STATS = [
 ] as const;
 
 const TOKEN_DATE_FORMAT: Intl.DateTimeFormatOptions = { month: 'short', day: '2-digit' };
-
-const fmt = (n: number): string => n.toLocaleString('en-US');
 
 function formatTokenDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', TOKEN_DATE_FORMAT);
@@ -141,7 +141,7 @@ function PopulatedHome({ vault, stats, dataLoading }: PopulatedHomeProps) {
     queryFn: () => getLeaderboard(address),
     enabled: !!address,
   });
-  const rank = board?.find((entry) => entry.isYou)?.rankLabel;
+  const rank = board?.entries.find((entry) => entry.isYou)?.rankLabel;
   const loading = dataLoading || isLoading || !vault || !stats;
 
   return (
@@ -156,10 +156,11 @@ function PopulatedHome({ vault, stats, dataLoading }: PopulatedHomeProps) {
             <div className="grid animate-fade-in grid-cols-1 gap-5 lg:grid-cols-[1.55fr_1fr]">
               <div className="flex flex-col gap-5">
                 <CheckInCard />
+                <RepCard address={address} />
                 <StatRow attendancePct={stats.currentSemesterAttendancePct} rank={rank} streak={stats.currentStreak} />
                 <VaultPreview vault={vault} />
               </div>
-              <LeaderboardPreview entries={board ?? []} />
+              <LeaderboardPreview entries={board?.entries ?? []} />
             </div>
           )}
         </PageContainer>
@@ -179,6 +180,7 @@ function MobileHome({
   vault?: MemberVault;
   stats?: PersonalStats;
 }) {
+  const address = useEmbeddedAddress();
   const recent = (vault?.tokens ?? []).slice(0, MOBILE_TOKEN_COUNT);
 
   return (
@@ -187,6 +189,9 @@ function MobileHome({
         {stats?.currentSemester ?? HOME_TITLE}
       </h1>
       <MobileCheckInCard />
+      <div className="mb-4">
+        <RepCard address={address} />
+      </div>
       <MobileStatRow attendancePct={stats?.currentSemesterAttendancePct} rank={rank} streak={stats?.currentStreak} />
       <div className="mb-3 flex items-center justify-between">
         <div className="text-sm font-semibold leading-none">{RECENT_TOKENS_TITLE}</div>
@@ -373,9 +378,7 @@ function LeaderboardRow({
           {entry.streak} in a row
         </div>
       </div>
-      <MonoNum className="text-[13px] font-medium">
-        {fmt(entry.tokens)}
-      </MonoNum>
+      <MonoNum className="text-[13px] font-medium">{formatRep(entry.rep)}</MonoNum>
     </div>
   );
 }

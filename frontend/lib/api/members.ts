@@ -1,4 +1,4 @@
-import { LeaderboardEntry, MemberStats, MemberVault, PersonalStats } from '@/types';
+import { Leaderboard, MemberRep, MemberStats, MemberVault, PersonalStats } from '@/types';
 import { shortenAddress } from '@/lib/address';
 import { apiRequest, ApiRequestError } from './client';
 
@@ -24,15 +24,20 @@ export async function getPersonalStats(address: string): Promise<PersonalStats> 
   return apiRequest<PersonalStats>(`/members/${encodeURIComponent(address)}/stats`);
 }
 
-type PublicMember = Omit<MemberStats, 'id' | 'linkedAccount' | 'joinedAt'>;
+type PublicMember = Omit<MemberStats, 'id' | 'linkedAccount' | 'joinedAt'> & { rep: string | null };
 
-// Ranks the public directory by confirmed tokens, then current streak. Members
-// with no confirmed tokens aren't ranked.
-export async function getLeaderboard(viewerAddress?: string): Promise<LeaderboardEntry[]> {
-  const { members } = await apiRequest<{ members: PublicMember[] }>('/members');
-  return members
-    .filter((member) => member.tokensEarned > 0)
-    .sort((a, b) => b.tokensEarned - a.tokensEarned || b.currentStreak - a.currentStreak)
+export async function getMemberRep(address: string): Promise<MemberRep> {
+  return apiRequest<MemberRep>(`/members/${encodeURIComponent(address)}/rep`);
+}
+
+// The directory arrives ranked by current Rep. Members with neither Rep nor a confirmed
+// token aren't ranked.
+export async function getLeaderboard(viewerAddress?: string): Promise<Leaderboard> {
+  const { members, repAsOf } = await apiRequest<{ members: PublicMember[]; repAsOf: string | null }>(
+    '/members',
+  );
+  const entries = members
+    .filter((member) => member.tokensEarned > 0 || BigInt(member.rep ?? 0) > 0n)
     .map((member, index) => ({
       rank: index + 1,
       rankLabel: `#${String(index + 1).padStart(2, '0')}`,
@@ -41,6 +46,8 @@ export async function getLeaderboard(viewerAddress?: string): Promise<Leaderboar
       streak: member.currentStreak,
       tokens: member.tokensEarned,
       attendancePct: member.allTimeAttendancePct,
+      rep: member.rep,
       isYou: member.walletAddress.toLowerCase() === viewerAddress?.toLowerCase(),
     }));
+  return { entries, repAsOf };
 }
